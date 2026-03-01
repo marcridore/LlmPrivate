@@ -3,3 +3,5 @@
 
 # Treat src-tauri build artifacts as binary (no EOL normalization)
 src-tauri/target/** -text
+node_modules/** -text
+
