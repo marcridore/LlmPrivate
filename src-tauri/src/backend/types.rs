@@ -90,6 +90,11 @@ pub enum TokenEvent {
         text: String,
         token_index: u32,
     },
+    /// Replace the entire accumulated response (used when stop sequences
+    /// are detected and the streamed text needs to be trimmed).
+    Replace {
+        full_text: String,
+    },
     Done {
         total_tokens: u32,
         generation_time_ms: u64,

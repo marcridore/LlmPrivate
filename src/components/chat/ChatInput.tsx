@@ -1,9 +1,21 @@
 import { useState, useRef, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "../../stores/chatStore";
 import { useModelStore } from "../../stores/modelStore";
 import type { ImageAttachment } from "../../types/chat";
+
+/** Convert a Blob/File to a base64 string (no data URL prefix). */
+async function blobToBase64(blob: Blob): Promise<string> {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
 
 export function ChatInput() {
   const [input, setInput] = useState("");
@@ -96,13 +108,34 @@ export function ChatInput() {
         const file = item.getAsFile();
         if (!file) continue;
 
-        const previewUrl = URL.createObjectURL(file);
-        const attachment: ImageAttachment = {
-          id: crypto.randomUUID(),
-          filePath: "", // Pasted images don't have a file path
-          previewUrl,
-        };
-        addPendingImage(attachment);
+        try {
+          // Determine file extension from MIME type
+          const mimeToExt: Record<string, string> = {
+            "image/png": "png",
+            "image/jpeg": "jpg",
+            "image/gif": "gif",
+            "image/webp": "webp",
+            "image/bmp": "bmp",
+          };
+          const extension = mimeToExt[item.type] ?? "png";
+
+          // Convert clipboard blob to base64 and save to a temp file via backend
+          const b64 = await blobToBase64(file);
+          const filePath = await invoke<string>("save_clipboard_image", {
+            data: b64,
+            extension,
+          });
+
+          const previewUrl = URL.createObjectURL(file);
+          const attachment: ImageAttachment = {
+            id: crypto.randomUUID(),
+            filePath,
+            previewUrl,
+          };
+          addPendingImage(attachment);
+        } catch (err) {
+          console.error("Failed to save clipboard image:", err);
+        }
       }
     }
   };

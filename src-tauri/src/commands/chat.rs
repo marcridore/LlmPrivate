@@ -14,32 +14,37 @@ pub async fn send_message(
     params: GenerationRequest,
     on_token: Channel<TokenEvent>,
 ) -> Result<(), AppError> {
-    let backends = state.backends.read().await;
-    let backend = backends.default_backend().ok_or(AppError::NoBackend)?;
+    // Check if this request has images and the vision server is running
+    let has_images = params.messages.iter().any(|m| !m.images.is_empty());
+    let vision_server_running = state.vision_server.is_running().await;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<TokenEvent>();
 
-    let backend_clone = backend.clone();
-    let gen_handle = tokio::spawn(async move {
-        backend_clone
-            .generate_stream(model_handle, params, tx)
-            .await
-    });
+    if has_images && vision_server_running {
+        // Route through vision server (llama-server sidecar)
+        tracing::info!("Routing vision request through llama-server sidecar");
+        let vision_server = state.vision_server.clone();
+        let messages = params.messages.clone();
+        let max_tokens = params.max_tokens;
+        let temperature = params.temperature;
 
-    while let Some(event) = rx.recv().await {
-        if on_token.send(event).is_err() {
-            break;
+        let gen_handle = tokio::spawn(async move {
+            vision_server
+                .chat_completion(&messages, max_tokens, temperature, &tx)
+                .await
+        });
+
+        while let Some(event) = rx.recv().await {
+            if on_token.send(event).is_err() {
+                break;
+            }
         }
-    }
 
-    let response = gen_handle
-        .await
-        .map_err(|e| AppError::TaskJoin(e.to_string()))??;
+        let response = gen_handle
+            .await
+            .map_err(|e| AppError::TaskJoin(e.to_string()))??;
 
-    // Save assistant message to conversation history
-    state
-        .db
-        .save_message(
+        state.db.save_message(
             &conversation_id,
             &ChatMessage {
                 role: Role::Assistant,
@@ -47,6 +52,37 @@ pub async fn send_message(
                 images: vec![],
             },
         )?;
+    } else {
+        // Text-only: use the in-process llama-cpp-2 backend (fast path)
+        let backends = state.backends.read().await;
+        let backend = backends.default_backend().ok_or(AppError::NoBackend)?;
+
+        let backend_clone = backend.clone();
+        let gen_handle = tokio::spawn(async move {
+            backend_clone
+                .generate_stream(model_handle, params, tx)
+                .await
+        });
+
+        while let Some(event) = rx.recv().await {
+            if on_token.send(event).is_err() {
+                break;
+            }
+        }
+
+        let response = gen_handle
+            .await
+            .map_err(|e| AppError::TaskJoin(e.to_string()))??;
+
+        state.db.save_message(
+            &conversation_id,
+            &ChatMessage {
+                role: Role::Assistant,
+                content: response.content,
+                images: vec![],
+            },
+        )?;
+    }
 
     Ok(())
 }

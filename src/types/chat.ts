@@ -25,6 +25,7 @@ export interface Conversation {
 
 export type TokenEvent =
   | { type: "Token"; text: string; token_index: number }
+  | { type: "Replace"; full_text: string }
   | {
       type: "Done";
       total_tokens: number;

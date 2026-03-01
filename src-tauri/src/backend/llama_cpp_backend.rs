@@ -46,6 +46,38 @@ pub struct LlamaCppBackend {
 
 impl LlamaCppBackend {
     pub fn new() -> Result<Self, AppError> {
+        // Redirect llama.cpp's C-level logging to our tracing system instead of
+        // letting it write to stderr (which is NUL on Windows to suppress CRT assertions).
+        unsafe {
+            unsafe extern "C" fn tracing_log(
+                level: llama_cpp_sys_2::ggml_log_level,
+                text: *const ::std::os::raw::c_char,
+                _user_data: *mut ::std::os::raw::c_void,
+            ) {
+                if text.is_null() {
+                    return;
+                }
+                let msg = std::ffi::CStr::from_ptr(text).to_string_lossy();
+                let msg = msg.trim();
+                if msg.is_empty() {
+                    return;
+                }
+                // ggml_log_level: 0=NONE, 1=DEBUG, 2=INFO, 3=WARN, 4=ERROR, 5=CONT
+                match level {
+                    4 => tracing::error!("[llama.cpp] {}", msg),
+                    3 => tracing::warn!("[llama.cpp] {}", msg),
+                    2 => tracing::info!("[llama.cpp] {}", msg),
+                    _ => tracing::debug!("[llama.cpp] {}", msg),
+                }
+            }
+            llama_cpp_sys_2::llama_log_set(Some(tracing_log), std::ptr::null_mut());
+
+            // Also redirect clip/mtmd logging (separate system from llama_log_set).
+            // Without this, mtmd errors go to stderr which is NUL on Windows.
+            #[cfg(feature = "mtmd")]
+            llama_cpp_sys_2::mtmd_log_set(Some(tracing_log), std::ptr::null_mut());
+        }
+
         let backend = llama_cpp_2::llama_backend::LlamaBackend::init()
             .map_err(|e| AppError::BackendInit(format!("Failed to init llama.cpp: {e}")))?;
 
@@ -93,11 +125,17 @@ fn build_model_info(
 // ── Multimodal helpers ────────────────────────────────────────────────────
 
 /// Scan the model's directory for a matching mmproj GGUF file.
+///
+/// Strategy:
+/// 1. Check recommended model configs for a known filename→mmproj mapping
+/// 2. Score by meaningful token overlap between model and mmproj names
+/// 3. If exactly one mmproj exists, use it (unambiguous)
+/// 4. Otherwise return None to avoid mismatches
 pub fn find_mmproj_file(model_path: &Path) -> Option<PathBuf> {
     let parent = model_path.parent()?;
-    let model_stem = model_path.file_stem()?.to_str()?.to_lowercase();
+    let model_filename = model_path.file_name()?.to_str()?.to_lowercase();
 
-    let mut entries: Vec<PathBuf> = std::fs::read_dir(parent)
+    let entries: Vec<PathBuf> = std::fs::read_dir(parent)
         .ok()?
         .filter_map(|e| e.ok())
         .filter(|e| {
@@ -111,23 +149,116 @@ pub fn find_mmproj_file(model_path: &Path) -> Option<PathBuf> {
         return None;
     }
 
-    // Prefer files sharing a name prefix with the model
-    let model_prefix: String = model_stem
-        .split(|c: char| c == '-' || c == '_')
-        .take(3)
-        .collect::<Vec<_>>()
-        .join("-");
-
-    entries.sort();
-    for entry in &entries {
-        let name = entry.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-        if name.starts_with(&model_prefix) {
-            return Some(entry.clone());
+    // Strategy 1: Use recommended model configs for known mappings
+    for rec in crate::models::recommended::get_recommended_models() {
+        if let Some(ref mmproj_name) = rec.mmproj_filename {
+            if rec.filename.to_lowercase() == model_filename {
+                let expected = parent.join(mmproj_name);
+                if expected.exists() {
+                    tracing::info!(
+                        "Matched mmproj via recommended config: {} → {}",
+                        model_filename, mmproj_name
+                    );
+                    return Some(expected);
+                }
+            }
         }
     }
 
-    // Fallback: any mmproj file in the same directory
-    Some(entries.remove(0))
+    // Strategy 2: Score by meaningful token overlap.
+    // We aggressively filter out generic tokens so that only the model's
+    // identity name (e.g. "smolvlm2", "gemma", "phi") drives the match.
+    let model_stem = model_path.file_stem()?.to_str()?.to_lowercase();
+    const GENERIC: &[&str] = &[
+        "model", "ggml", "gguf", "mmproj", "f16", "f32",
+        "q2", "q3", "q4", "q5", "q6", "q8", "k", "m", "s", "l",
+        "text", "ct", "instruct", "it", "chat", "base", "v1", "v2",
+    ];
+
+    /// Returns true if the token is too generic to be meaningful for matching:
+    /// pure numbers ("2", "16"), size tokens ("2b", "7b", "13b"), version-like ("v1.5").
+    fn is_generic_token(t: &str) -> bool {
+        if GENERIC.contains(&t) {
+            return true;
+        }
+        // Pure numeric: "2", "16", "1024"
+        if t.chars().all(|c| c.is_ascii_digit()) {
+            return true;
+        }
+        // Size tokens: "2b", "7b", "13b", "0b"
+        if t.len() >= 2
+            && t.ends_with('b')
+            && t[..t.len() - 1].chars().all(|c| c.is_ascii_digit())
+        {
+            return true;
+        }
+        // Single character
+        if t.len() == 1 {
+            return true;
+        }
+        false
+    }
+
+    let model_tokens: Vec<&str> = model_stem
+        .split(|c: char| c == '-' || c == '_' || c == '.')
+        .filter(|t| !t.is_empty() && !is_generic_token(t))
+        .collect();
+
+    tracing::debug!(
+        "mmproj matching: model_stem={} meaningful_tokens={:?}",
+        model_stem, model_tokens
+    );
+
+    let mut best: Option<(PathBuf, usize)> = None;
+    for entry in &entries {
+        let mmproj_name = entry
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_lowercase();
+        let mmproj_tokens: Vec<&str> = mmproj_name
+            .split(|c: char| c == '-' || c == '_' || c == '.')
+            .filter(|t| !t.is_empty() && !is_generic_token(t))
+            .collect();
+
+        let score = model_tokens
+            .iter()
+            .filter(|t| mmproj_tokens.contains(t))
+            .count();
+
+        tracing::debug!(
+            "mmproj candidate: {} tokens={:?} score={}",
+            mmproj_name, mmproj_tokens, score
+        );
+
+        if let Some((_, best_score)) = &best {
+            if score > *best_score {
+                best = Some((entry.clone(), score));
+            }
+        } else if score > 0 {
+            best = Some((entry.clone(), score));
+        }
+    }
+
+    match best {
+        Some((path, score)) if score > 0 => {
+            tracing::info!(
+                "Matched mmproj: {} (score={})",
+                path.display(), score
+            );
+            Some(path)
+        }
+        // Don't fallback to a random mmproj just because there's only one.
+        // A mismatched mmproj (e.g. SmolVLM2 mmproj with Gemma) will cause
+        // the vision server to hang or produce garbage.
+        _ => {
+            tracing::info!(
+                "No mmproj match for model: {} (candidates: {})",
+                model_stem, entries.len()
+            );
+            None
+        }
+    }
 }
 
 #[cfg(feature = "mtmd")]
@@ -200,6 +331,8 @@ fn run_generation_multimodal(
     cancel_flag: &Arc<AtomicBool>,
 ) -> Result<GenerationResponse, AppError> {
     let start = Instant::now();
+
+    let stop_sequences = collect_stop_sequences(&request);
 
     // 1. Build prompt with <__media__> markers
     let (prompt_text, image_paths) = format_multimodal_prompt(model, &request.messages);
@@ -334,6 +467,24 @@ fn run_generation_multimodal(
 
         if !piece.is_empty() {
             full_response.push_str(&piece);
+
+            // Check for stop sequences
+            let mut hit_stop = false;
+            for seq in &stop_sequences {
+                if let Some(pos) = full_response.rfind(seq.as_str()) {
+                    full_response.truncate(pos);
+                    hit_stop = true;
+                    tracing::info!("Stop sequence '{}' hit after {n_decode} tokens", seq);
+                    let _ = token_tx.send(TokenEvent::Replace {
+                        full_text: full_response.clone(),
+                    });
+                    break;
+                }
+            }
+            if hit_stop {
+                break;
+            }
+
             let _ = token_tx.send(TokenEvent::Token {
                 text: piece,
                 token_index: n_decode,
@@ -381,9 +532,13 @@ fn run_generation(
 ) -> Result<GenerationResponse, AppError> {
     let start = Instant::now();
 
+    // Collect stop sequences (always include common chat-template markers)
+    let stop_sequences = collect_stop_sequences(&request);
+
     // Build the prompt from chat messages
     let prompt = format_chat_prompt(model, &request.messages);
     tracing::info!("Prompt length: {} chars", prompt.len());
+    tracing::debug!("Prompt: {}", &prompt[..prompt.len().min(500)]);
 
     // Create context
     let n_ctx = load_params.n_ctx;
@@ -515,6 +670,25 @@ fn run_generation(
         if !piece.is_empty() {
             full_response.push_str(&piece);
 
+            // Check for stop sequences in accumulated response
+            let mut hit_stop = false;
+            for seq in &stop_sequences {
+                if let Some(pos) = full_response.rfind(seq.as_str()) {
+                    // Trim response at stop sequence position
+                    full_response.truncate(pos);
+                    hit_stop = true;
+                    tracing::info!("Stop sequence '{}' hit after {n_decode} tokens", seq);
+                    // Send Replace event to fix the streamed text on the frontend
+                    let _ = token_tx.send(TokenEvent::Replace {
+                        full_text: full_response.clone(),
+                    });
+                    break;
+                }
+            }
+            if hit_stop {
+                break;
+            }
+
             let _ = token_tx.send(TokenEvent::Token {
                 text: piece,
                 token_index: n_decode,
@@ -581,6 +755,28 @@ fn build_sampler(request: &GenerationRequest) -> llama_cpp_2::sampling::LlamaSam
     LlamaSampler::chain_simple(samplers)
 }
 
+/// Collect stop sequences: merges user-provided ones with common chat template markers.
+fn collect_stop_sequences(request: &GenerationRequest) -> Vec<String> {
+    let mut seqs: Vec<String> = request.stop_sequences.clone();
+
+    // Always add common chat template end markers
+    for marker in &[
+        "<|im_end|>",
+        "<|end|>",
+        "<|eot_id|>",
+        "<|endoftext|>",
+        "</s>",
+        "<|END_OF_TURN_TOKEN|>",
+    ] {
+        let s = marker.to_string();
+        if !seqs.contains(&s) {
+            seqs.push(s);
+        }
+    }
+
+    seqs
+}
+
 fn format_chat_prompt(
     model: &llama_cpp_2::model::LlamaModel,
     messages: &[ChatMessage],
@@ -597,15 +793,34 @@ fn format_chat_prompt(
         })
         .collect();
 
+    // First try the model's built-in chat template (from GGUF metadata)
     if let Ok(template) = model.chat_template(None) {
-        if let Ok(formatted) = model.apply_chat_template(&template, &chat_messages, true) {
-            tracing::info!("Using model's built-in chat template");
+        let tmpl_preview = template.to_str().unwrap_or("(non-utf8)");
+        tracing::info!("Found chat template: {}...", &tmpl_preview[..tmpl_preview.len().min(80)]);
+        match model.apply_chat_template(&template, &chat_messages, true) {
+            Ok(formatted) => {
+                tracing::info!("Applied model's built-in chat template successfully");
+                return formatted;
+            }
+            Err(e) => {
+                tracing::warn!("Failed to apply model template: {e}");
+            }
+        }
+    } else {
+        tracing::warn!("Model has no built-in chat template, using ChatML fallback");
+    }
+
+    // Fallback: Try applying the standard ChatML template via llama.cpp
+    // (uses the built-in ChatML template in llama.cpp itself)
+    if let Ok(chatml) = llama_cpp_2::model::LlamaChatTemplate::new("chatml") {
+        if let Ok(formatted) = model.apply_chat_template(&chatml, &chat_messages, true) {
+            tracing::info!("Applied ChatML template via llama.cpp");
             return formatted;
         }
     }
 
-    // Fallback: ChatML format
-    tracing::info!("Using fallback ChatML template");
+    // Last resort: manual ChatML construction
+    tracing::warn!("Manual ChatML fallback (model may not support this format)");
     let mut prompt = String::new();
     for msg in messages {
         let role = match msg.role {
@@ -726,36 +941,68 @@ impl InferenceBackend for LlamaCppBackend {
                 // Try to initialize multimodal context
                 #[cfg(feature = "mtmd")]
                 let mtmd_ctx: Option<llama_cpp_2::mtmd::MtmdContext> = {
+                    tracing::info!("Searching for mmproj companion file...");
                     let mmproj = find_mmproj_file(&model_path);
+                    match &mmproj {
+                        Some(p) => tracing::info!("Found mmproj: {}", p.display()),
+                        None => tracing::warn!("No mmproj file found for {}", model_path.display()),
+                    }
                     mmproj.and_then(|mmproj_path| {
                         let mmproj_str = mmproj_path.to_str()?;
                         let gpu_active = cfg!(feature = "cuda") || cfg!(feature = "vulkan");
-                        let mtmd_params = llama_cpp_2::mtmd::MtmdContextParams {
-                            use_gpu: gpu_active && params_clone.n_gpu_layers > 0,
-                            print_timings: false,
-                            n_threads: params_clone.n_threads.unwrap_or_else(|| {
-                                std::cmp::max(1, num_cpus() / 2) as u32
-                            }) as i32,
-                            media_marker: std::ffi::CString::new(
-                                llama_cpp_2::mtmd::mtmd_default_marker()
-                            ).unwrap(),
+                        tracing::info!(
+                            "Initializing multimodal context (gpu_active={}, gpu_layers={})...",
+                            gpu_active, params_clone.n_gpu_layers
+                        );
+                        let n_threads = params_clone.n_threads.unwrap_or_else(|| {
+                            std::cmp::max(1, num_cpus() / 2) as u32
+                        }) as i32;
+
+                        // Try GPU first, fall back to CPU if that fails
+                        let use_gpu_first = gpu_active && params_clone.n_gpu_layers > 0;
+                        let attempts: Vec<bool> = if use_gpu_first {
+                            vec![true, false] // try GPU, then CPU
+                        } else {
+                            vec![false]
                         };
 
-                        match llama_cpp_2::mtmd::MtmdContext::init_from_file(
-                            mmproj_str, &model, &mtmd_params
-                        ) {
-                            Ok(ctx) => {
-                                tracing::info!(
-                                    "Multimodal context loaded (vision={}, mmproj={})",
-                                    ctx.support_vision(), mmproj_str
-                                );
-                                Some(ctx)
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to init multimodal context: {e}");
-                                None
+                        let mut init_result = None;
+                        for use_gpu in &attempts {
+                            tracing::info!("Attempting MtmdContext init with use_gpu={}", use_gpu);
+                            let mtmd_params = llama_cpp_2::mtmd::MtmdContextParams {
+                                use_gpu: *use_gpu,
+                                print_timings: false,
+                                n_threads,
+                                media_marker: std::ffi::CString::new(
+                                    llama_cpp_2::mtmd::mtmd_default_marker()
+                                ).unwrap(),
+                            };
+
+                            match llama_cpp_2::mtmd::MtmdContext::init_from_file(
+                                mmproj_str, &model, &mtmd_params
+                            ) {
+                                Ok(ctx) => {
+                                    tracing::info!("MtmdContext init succeeded (use_gpu={})", use_gpu);
+                                    init_result = Some(ctx);
+                                    break;
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "MtmdContext init failed with use_gpu={}: {e}", use_gpu
+                                    );
+                                }
                             }
                         }
+
+                        if let Some(ref ctx) = init_result {
+                            tracing::info!(
+                                "Multimodal context loaded OK (vision={}, mmproj={})",
+                                ctx.support_vision(), mmproj_str
+                            );
+                        } else {
+                            tracing::error!("All MtmdContext init attempts failed for {}", mmproj_str);
+                        }
+                        init_result
                     })
                 };
 
@@ -764,11 +1011,24 @@ impl InferenceBackend for LlamaCppBackend {
                 #[cfg(feature = "mtmd")]
                 {
                     if let Some(ref ctx) = mtmd_ctx {
-                        info.supports_vision = ctx.support_vision();
+                        let vision = ctx.support_vision();
+                        tracing::info!(
+                            "MtmdContext present: support_vision()={}", vision
+                        );
+                        info.supports_vision = vision;
                         info.mmproj_path = find_mmproj_file(&model_path);
+                    } else {
+                        tracing::info!("No MtmdContext — model will be text-only");
                     }
                 }
 
+                #[cfg(not(feature = "mtmd"))]
+                tracing::info!("mtmd feature not compiled — vision unavailable");
+
+                tracing::info!(
+                    "Sending model info: name={}, supports_vision={}, mmproj={:?}",
+                    info.name, info.supports_vision, info.mmproj_path
+                );
                 let _ = ready_tx.send(Ok(info));
 
                 tracing::info!("Model thread {} ready, entering command loop", handle);

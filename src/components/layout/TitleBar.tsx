@@ -9,13 +9,21 @@ export function TitleBar() {
     // Sync fullscreen state on mount
     appWindow.isFullscreen().then(setIsFullscreen);
 
-    // Listen for F11 to toggle fullscreen
+    // Listen for F11 to toggle fullscreen, Escape to exit fullscreen
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "F11") {
         e.preventDefault();
         appWindow.isFullscreen().then((fs) => {
           appWindow.setFullscreen(!fs);
           setIsFullscreen(!fs);
+        });
+      }
+      if (e.key === "Escape") {
+        appWindow.isFullscreen().then((fs) => {
+          if (fs) {
+            appWindow.setFullscreen(false);
+            setIsFullscreen(false);
+          }
         });
       }
     };
@@ -33,8 +41,11 @@ export function TitleBar() {
   if (isFullscreen) {
     return (
       <div
-        className="h-1 hover:h-8 group bg-transparent hover:bg-background hover:border-b hover:border-border transition-all duration-200 select-none flex items-center justify-end"
+        className="h-2 hover:h-8 group bg-transparent hover:bg-background hover:border-b hover:border-border transition-all duration-200 select-none flex items-center justify-between"
       >
+        <span className="hidden group-hover:inline text-xs text-muted-foreground px-3">
+          Press Esc or F11 to exit fullscreen
+        </span>
         <div className="hidden group-hover:flex">
           <button
             onClick={toggleFullscreen}

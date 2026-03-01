@@ -7,6 +7,7 @@ pub mod llama_cpp_backend;
 pub mod stub_backend;
 pub mod traits;
 pub mod types;
+pub mod vision_server;
 
 pub struct BackendRegistry {
     backends: HashMap<String, Arc<dyn InferenceBackend>>,

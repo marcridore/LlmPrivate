@@ -6,6 +6,21 @@ import type {
   DownloadProgress,
 } from "../types/model";
 
+/** Extract a human-readable message from a Tauri error (which can be string, object, etc.) */
+function errorMessage(e: unknown): string {
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object") {
+    if ("message" in e && typeof (e as { message: unknown }).message === "string")
+      return (e as { message: string }).message;
+    try {
+      return JSON.stringify(e);
+    } catch {
+      return String(e);
+    }
+  }
+  return String(e);
+}
+
 interface ActiveDownload {
   modelId: string;
   filename: string;
@@ -99,8 +114,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
           { modelHandle: handle }
         );
         supportsVision = caps.supports_vision;
-      } catch {
-        // Capabilities not available, default to no vision
+        console.log("[modelStore] Model capabilities:", caps, "supportsVision:", supportsVision);
+      } catch (capErr) {
+        console.error("[modelStore] get_model_capabilities failed:", capErr);
       }
 
       set({
@@ -117,9 +133,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       }).catch(() => {});
       return handle;
     } catch (e) {
-      const errorMsg = typeof e === "object" && e !== null && "message" in e
-        ? String((e as { message: string }).message)
-        : String(e);
+      const errorMsg = errorMessage(e);
       console.error("Failed to load model:", errorMsg);
       set({ isLoading: false, loadingModelPath: null, loadError: errorMsg });
       return null;
@@ -232,11 +246,22 @@ export const useModelStore = create<ModelState>((set, get) => ({
       set({ activeDownloads: updated });
 
       await get().scanLocalModels();
+
+      // If this model (or its companion) was just downloaded and the model
+      // is currently loaded, reload it so vision support gets detected.
+      const currentName = get().loadedModelName;
+      if (currentName && model.filename.replace(".gguf", "") === currentName) {
+        const locals = get().localModels;
+        const entry = locals.find((m) => m.name === currentName);
+        if (entry) {
+          await get().loadModel(entry.file_path);
+        }
+      }
     } catch (e) {
       const updated = new Map(get().activeDownloads);
       updated.delete(model.id);
       const errors = new Map(get().downloadErrors);
-      errors.set(model.id, String(e));
+      errors.set(model.id, errorMessage(e));
       set({ activeDownloads: updated, downloadErrors: errors });
     }
   },

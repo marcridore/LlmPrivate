@@ -191,6 +191,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
             { ...lastMsg, content: lastMsg.content + event.text },
           ],
         });
+      } else if (event.type === "Replace") {
+        // Stop sequence was hit — replace entire assistant content with trimmed version
+        set({
+          messages: [
+            ...currentMessages.slice(0, -1),
+            { ...lastMsg, content: event.full_text },
+          ],
+        });
       } else if (event.type === "Done") {
         set({
           messages: [

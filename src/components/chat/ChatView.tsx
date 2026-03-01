@@ -10,6 +10,7 @@ export function ChatView() {
   const isGenerating = useChatStore((s) => s.isGenerating);
   const setLoadedModelHandle = useChatStore((s) => s.setLoadedModelHandle);
   const loadedModelHandle = useModelStore((s) => s.loadedModelHandle);
+  const supportsVision = useModelStore((s) => s.supportsVision);
   const autoLoadModel = useModelStore((s) => s.autoLoadModel);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -61,6 +62,11 @@ export function ChatView() {
             <div className="text-center text-muted-foreground">
               <h2 className="text-2xl font-bold mb-2">LlmPrivate</h2>
               <p className="text-sm">Start a conversation with your local AI</p>
+              {supportsVision && (
+                <p className="text-xs mt-3 text-pink-400">
+                  Vision model loaded — attach an image using the image button below
+                </p>
+              )}
             </div>
           </div>
         )}

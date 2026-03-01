@@ -19,10 +19,45 @@ pub async fn load_model(
     model_path: String,
     params: Option<ModelLoadParams>,
 ) -> Result<ModelHandle, AppError> {
-    state
+    let params = params.unwrap_or_default();
+    let path = std::path::PathBuf::from(&model_path);
+
+    let handle = state
         .model_manager
-        .load_model(model_path.into(), params.unwrap_or_default())
-        .await
+        .load_model(path.clone(), params.clone())
+        .await?;
+
+    // Check if this model has a companion mmproj file → start vision server
+    if let Some(mmproj_path) = crate::backend::llama_cpp_backend::find_mmproj_file(&path) {
+        tracing::info!(
+            "Model has mmproj companion: {}. Starting vision server...",
+            mmproj_path.display()
+        );
+        match state
+            .vision_server
+            .start(&path, &mmproj_path, params.n_gpu_layers)
+            .await
+        {
+            Ok(port) => {
+                tracing::info!("Vision server started on port {}", port);
+                // Update model info to reflect vision capability
+                let backends = state.backends.read().await;
+                if let Some(backend) = backends.default_backend() {
+                    if let Ok(mut info) = backend.get_model_info(handle) {
+                        info.supports_vision = true;
+                        info.mmproj_path = Some(mmproj_path);
+                        // Note: we can't update info in-place on the backend,
+                        // but the get_model_capabilities command will check the vision server
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to start vision server: {e}. Vision will be unavailable.");
+            }
+        }
+    }
+
+    Ok(handle)
 }
 
 #[tauri::command]
@@ -30,6 +65,8 @@ pub async fn unload_model(
     state: State<'_, AppState>,
     handle: ModelHandle,
 ) -> Result<(), AppError> {
+    // Stop vision server if running
+    state.vision_server.stop().await;
     state.model_manager.unload_model(handle).await
 }
 
