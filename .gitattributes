@@ -1,0 +1,5 @@
+# Auto-detect text files and normalize by default
+* text=auto
+
+# Treat src-tauri build artifacts as binary (no EOL normalization)
+src-tauri/target/** -text
