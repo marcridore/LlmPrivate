@@ -48,6 +48,8 @@ pub fn run() {
             commands::chat::get_conversations,
             commands::chat::get_messages,
             commands::chat::create_conversation,
+            commands::chat::save_user_message,
+            commands::chat::cleanup_empty_conversations,
             commands::chat::delete_conversation,
             // Models
             commands::models::list_local_models,
@@ -63,6 +65,7 @@ pub fn run() {
             commands::system::get_system_resources,
             commands::system::get_gpu_info,
             commands::system::get_model_recommendation,
+            commands::system::get_model_capabilities,
             // Settings
             commands::settings::get_settings,
             commands::settings::update_settings,

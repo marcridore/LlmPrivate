@@ -49,3 +49,21 @@ pub async fn get_model_recommendation(
         .resource_monitor
         .recommend_params(model_size_bytes, &model_quant)
 }
+
+#[derive(Serialize)]
+pub struct ModelCapabilities {
+    pub supports_vision: bool,
+}
+
+#[tauri::command]
+pub async fn get_model_capabilities(
+    state: State<'_, AppState>,
+    model_handle: u64,
+) -> Result<ModelCapabilities, AppError> {
+    let backends = state.backends.read().await;
+    let backend = backends.default_backend().ok_or(AppError::NoBackend)?;
+    let info = backend.get_model_info(model_handle)?;
+    Ok(ModelCapabilities {
+        supports_vision: info.supports_vision,
+    })
+}

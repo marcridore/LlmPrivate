@@ -40,6 +40,20 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             : "bg-muted"
         }`}
       >
+        {/* Attached images */}
+        {message.images && message.images.length > 0 && (
+          <div className="flex gap-2 flex-wrap mb-2">
+            {message.images.map((img) => (
+              <img
+                key={img.id}
+                src={img.previewUrl}
+                alt={img.altText ?? "Attached image"}
+                className="max-w-[200px] max-h-[200px] rounded-md object-cover"
+              />
+            ))}
+          </div>
+        )}
+
         {isUser ? (
           <p className="text-sm whitespace-pre-wrap">{message.content}</p>
         ) : (

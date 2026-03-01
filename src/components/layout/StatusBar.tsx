@@ -12,6 +12,7 @@ export function StatusBar() {
   const tokensPerSecond = useChatStore((s) => s.tokensPerSecond);
   const isGenerating = useChatStore((s) => s.isGenerating);
   const loadedModelName = useModelStore((s) => s.loadedModelName);
+  const supportsVision = useModelStore((s) => s.supportsVision);
   const [gpuInfo, setGpuInfo] = useState<BackendCapabilities | null>(null);
 
   useEffect(() => {
@@ -37,6 +38,9 @@ export function StatusBar() {
             ? `GPU: ${gpuInfo.gpu_backend?.toUpperCase()}`
             : "CPU only"}
         </span>
+      )}
+      {supportsVision && (
+        <span className="text-blue-400">Vision</span>
       )}
       <span className="ml-auto">v0.1.0</span>
     </div>

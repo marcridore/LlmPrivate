@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { invoke, Channel } from "@tauri-apps/api/core";
-import type { Message, Conversation, TokenEvent } from "../types/chat";
+import type { Message, Conversation, TokenEvent, ImageAttachment } from "../types/chat";
+
+const PAGE_SIZE = 30;
 
 interface ChatState {
   conversations: Conversation[];
@@ -9,14 +11,22 @@ interface ChatState {
   isGenerating: boolean;
   tokensPerSecond: number;
   loadedModelHandle: number | null;
+  pendingImages: ImageAttachment[];
+  _cleanupDone: boolean;
+  hasMoreConversations: boolean;
 
+  initConversations: () => Promise<void>;
   loadConversations: () => Promise<void>;
+  loadMoreConversations: () => Promise<void>;
   selectConversation: (id: string) => Promise<void>;
-  createConversation: () => Promise<string>;
+  createConversation: (title?: string) => Promise<string>;
   deleteConversation: (id: string) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
   stopGeneration: () => Promise<void>;
   setLoadedModelHandle: (handle: number | null) => void;
+  addPendingImage: (image: ImageAttachment) => void;
+  removePendingImage: (id: string) => void;
+  clearPendingImages: () => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -26,13 +36,54 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isGenerating: false,
   tokensPerSecond: 0,
   loadedModelHandle: null,
+  pendingImages: [],
+  _cleanupDone: false,
+  hasMoreConversations: false,
+
+  initConversations: async () => {
+    if (get()._cleanupDone) {
+      await get().loadConversations();
+      return;
+    }
+    // Clean up empty conversations + rename untitled ones on first load
+    try {
+      await invoke("cleanup_empty_conversations");
+    } catch {
+      // Command may not exist yet, skip
+    }
+    set({ _cleanupDone: true });
+    await get().loadConversations();
+  },
 
   loadConversations: async () => {
     try {
-      const conversations = await invoke<Conversation[]>("get_conversations");
-      set({ conversations });
+      const conversations = await invoke<Conversation[]>("get_conversations", {
+        limit: PAGE_SIZE,
+        offset: 0,
+      });
+      set({
+        conversations,
+        hasMoreConversations: conversations.length >= PAGE_SIZE,
+      });
     } catch (e) {
       console.error("Failed to load conversations:", e);
+    }
+  },
+
+  loadMoreConversations: async () => {
+    if (!get().hasMoreConversations) return;
+    try {
+      const offset = get().conversations.length;
+      const more = await invoke<Conversation[]>("get_conversations", {
+        limit: PAGE_SIZE,
+        offset,
+      });
+      set((s) => ({
+        conversations: [...s.conversations, ...more],
+        hasMoreConversations: more.length >= PAGE_SIZE,
+      }));
+    } catch (e) {
+      console.error("Failed to load more conversations:", e);
     }
   },
 
@@ -54,9 +105,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  createConversation: async () => {
+  createConversation: async (title?: string) => {
     try {
-      const id = await invoke<string>("create_conversation", { title: null });
+      const id = await invoke<string>("create_conversation", { title: title ?? null });
       await get().loadConversations();
       set({ activeConversationId: id, messages: [] });
       return id;
@@ -79,7 +130,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (content: string) => {
-    const { activeConversationId, messages, loadedModelHandle } = get();
+    const { activeConversationId, messages, loadedModelHandle, pendingImages } = get();
 
     if (!loadedModelHandle) {
       console.error("No model loaded");
@@ -88,25 +139,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     let conversationId = activeConversationId;
     if (!conversationId) {
-      conversationId = await get().createConversation();
+      // Use first ~50 chars of message as conversation title
+      const title = content.trim().slice(0, 50) || "New Chat";
+      conversationId = await get().createConversation(title);
       if (!conversationId) return;
     }
 
     // Save user message to DB
     try {
-      await invoke("send_user_message_to_db", {
+      await invoke("save_user_message", {
         conversationId,
         content,
       });
-    } catch {
-      // Command may not exist yet, that's ok
+    } catch (e) {
+      console.error("Failed to save user message:", e);
     }
+
+    const attachedImages = pendingImages.length > 0 ? [...pendingImages] : undefined;
+    set({ pendingImages: [] });
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: "user",
       content,
       createdAt: new Date().toISOString(),
+      images: attachedImages,
     };
 
     const assistantMessage: Message = {
@@ -161,6 +218,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const chatMessages = [...messages, userMessage].map((m) => ({
       role: m.role,
       content: m.content,
+      images: (m.images ?? []).map((img) => ({
+        id: img.id,
+        file_path: img.filePath,
+        alt_text: img.altText ?? null,
+      })),
     }));
 
     try {
@@ -198,4 +260,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setLoadedModelHandle: (handle) => set({ loadedModelHandle: handle }),
+
+  addPendingImage: (image) =>
+    set({ pendingImages: [...get().pendingImages, image] }),
+
+  removePendingImage: (id) =>
+    set({ pendingImages: get().pendingImages.filter((img) => img.id !== id) }),
+
+  clearPendingImages: () => set({ pendingImages: [] }),
 }));

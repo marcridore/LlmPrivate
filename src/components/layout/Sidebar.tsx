@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { useChatStore } from "../../stores/chatStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useModelStore } from "../../stores/modelStore";
@@ -6,7 +6,9 @@ import { useModelStore } from "../../stores/modelStore";
 export function Sidebar() {
   const conversations = useChatStore((s) => s.conversations);
   const activeConversationId = useChatStore((s) => s.activeConversationId);
-  const loadConversations = useChatStore((s) => s.loadConversations);
+  const initConversations = useChatStore((s) => s.initConversations);
+  const loadMoreConversations = useChatStore((s) => s.loadMoreConversations);
+  const hasMoreConversations = useChatStore((s) => s.hasMoreConversations);
   const selectConversation = useChatStore((s) => s.selectConversation);
   const createConversation = useChatStore((s) => s.createConversation);
   const deleteConversation = useChatStore((s) => s.deleteConversation);
@@ -15,9 +17,21 @@ export function Sidebar() {
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const loadedModelName = useModelStore((s) => s.loadedModelName);
 
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    loadConversations();
-  }, [loadConversations]);
+    initConversations();
+  }, [initConversations]);
+
+  // Infinite scroll: load more when user scrolls near bottom
+  const handleScroll = useCallback(() => {
+    const el = listRef.current;
+    if (!el || !hasMoreConversations) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
+      loadMoreConversations();
+    }
+  }, [hasMoreConversations, loadMoreConversations]);
 
   if (sidebarCollapsed) {
     return (
@@ -65,44 +79,85 @@ export function Sidebar() {
         ))}
       </div>
 
-      {/* New Chat button */}
       {activePage === "chat" && (
-        <div className="p-2">
-          <button
-            onClick={() => createConversation()}
-            className="w-full py-2 px-3 text-sm rounded-md border border-border hover:bg-muted transition-colors flex items-center gap-2"
-          >
-            <span>+</span>
-            <span>New Chat</span>
-          </button>
-        </div>
+        <>
+          {/* New Chat button */}
+          <div className="p-2">
+            <button
+              onClick={() => {
+                createConversation();
+                setHistoryOpen(false);
+              }}
+              className="w-full py-2 px-3 text-sm rounded-md border border-border hover:bg-muted transition-colors flex items-center gap-2"
+            >
+              <span>+</span>
+              <span>New Chat</span>
+            </button>
+          </div>
+
+          {/* History toggle */}
+          {conversations.length > 0 && (
+            <button
+              onClick={() => setHistoryOpen((o) => !o)}
+              className="flex items-center justify-between px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <span>History ({conversations.length}{hasMoreConversations ? "+" : ""})</span>
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                className={`transition-transform ${historyOpen ? "rotate-180" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              >
+                <path d="M3 5l3 3 3-3" />
+              </svg>
+            </button>
+          )}
+
+          {/* Conversation list (collapsible) */}
+          {historyOpen && (
+            <div
+              ref={listRef}
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto"
+            >
+              {conversations.map((conv) => (
+                <div
+                  key={conv.id}
+                  onClick={() => selectConversation(conv.id)}
+                  className={`group px-3 py-2 text-sm cursor-pointer flex items-center justify-between hover:bg-muted transition-colors ${
+                    activeConversationId === conv.id ? "bg-muted" : ""
+                  }`}
+                >
+                  <span className="truncate flex-1 mr-2">{conv.title}</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteConversation(conv.id);
+                    }}
+                    className="hidden group-hover:block text-muted-foreground hover:text-destructive text-xs shrink-0"
+                  >
+                    x
+                  </button>
+                </div>
+              ))}
+              {hasMoreConversations && (
+                <button
+                  onClick={() => loadMoreConversations()}
+                  className="w-full py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Load more...
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
 
-      {/* Conversation list */}
-      {activePage === "chat" && (
-        <div className="flex-1 overflow-y-auto">
-          {conversations.map((conv) => (
-            <div
-              key={conv.id}
-              onClick={() => selectConversation(conv.id)}
-              className={`group px-3 py-2 text-sm cursor-pointer flex items-center justify-between hover:bg-muted transition-colors ${
-                activeConversationId === conv.id ? "bg-muted" : ""
-              }`}
-            >
-              <span className="truncate">{conv.title}</span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteConversation(conv.id);
-                }}
-                className="hidden group-hover:block text-muted-foreground hover:text-destructive text-xs"
-              >
-                x
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Spacer to push model badge to bottom when history is closed */}
+      {(activePage !== "chat" || !historyOpen) && <div className="flex-1" />}
 
       {/* Loaded model badge */}
       <div className="p-2 border-t border-border">

@@ -17,6 +17,7 @@ interface ModelState {
   recommendedModels: RecommendedModel[];
   loadedModelHandle: number | null;
   loadedModelName: string | null;
+  supportsVision: boolean;
   isLoading: boolean;
   loadingModelPath: string | null;
   loadError: string | null;
@@ -40,6 +41,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   recommendedModels: [],
   loadedModelHandle: null,
   loadedModelName: null,
+  supportsVision: false,
   isLoading: false,
   loadingModelPath: null,
   loadError: null,
@@ -68,6 +70,20 @@ export const useModelStore = create<ModelState>((set, get) => ({
   },
 
   loadModel: async (path: string) => {
+    // Prevent loading if already loading
+    if (get().isLoading) return null;
+
+    // Unload previous model first to free GPU VRAM
+    const prevHandle = get().loadedModelHandle;
+    if (prevHandle) {
+      try {
+        await invoke("unload_model", { handle: prevHandle });
+      } catch {
+        // Best effort unload
+      }
+      set({ loadedModelHandle: null, loadedModelName: null, supportsVision: false });
+    }
+
     set({ isLoading: true, loadingModelPath: path, loadError: null });
     try {
       const handle = await invoke<number>("load_model", {
@@ -75,9 +91,22 @@ export const useModelStore = create<ModelState>((set, get) => ({
         params: null,
       });
       const name = path.split(/[/\\]/).pop()?.replace(".gguf", "") ?? "Model";
+      // Query model capabilities (vision support)
+      let supportsVision = false;
+      try {
+        const caps = await invoke<{ supports_vision: boolean }>(
+          "get_model_capabilities",
+          { modelHandle: handle }
+        );
+        supportsVision = caps.supports_vision;
+      } catch {
+        // Capabilities not available, default to no vision
+      }
+
       set({
         loadedModelHandle: handle,
         loadedModelName: name,
+        supportsVision,
         isLoading: false,
         loadingModelPath: null,
         loadError: null,
@@ -100,14 +129,15 @@ export const useModelStore = create<ModelState>((set, get) => ({
   unloadModel: async (handle: number) => {
     try {
       await invoke("unload_model", { handle });
-      set({ loadedModelHandle: null, loadedModelName: null });
+      set({ loadedModelHandle: null, loadedModelName: null, supportsVision: false });
     } catch (e) {
       console.error("Failed to unload model:", e);
     }
   },
 
   autoLoadModel: async () => {
-    if (get().autoLoadAttempted || get().loadedModelHandle) return;
+    // Guard against concurrent calls (React StrictMode, multiple renders)
+    if (get().autoLoadAttempted || get().loadedModelHandle || get().isLoading) return;
     set({ autoLoadAttempted: true });
 
     // Try last used model from settings
@@ -171,6 +201,30 @@ export const useModelStore = create<ModelState>((set, get) => ({
         filename: model.filename,
         onProgress,
       });
+
+      // Auto-download companion mmproj file for vision models
+      if (model.mmproj_filename) {
+        const mmRepo = model.mmproj_repo_id ?? model.repo_id;
+        const mmProgress = new Channel<DownloadProgress>();
+        // Show mmproj download in the same progress slot
+        mmProgress.onmessage = (progress: DownloadProgress) => {
+          const current = new Map(get().activeDownloads);
+          const dl = current.get(model.id);
+          if (dl) {
+            current.set(model.id, {
+              ...dl,
+              filename: model.mmproj_filename!,
+              progress,
+            });
+            set({ activeDownloads: current });
+          }
+        };
+        await invoke<string>("download_model", {
+          repoId: mmRepo,
+          filename: model.mmproj_filename,
+          onProgress: mmProgress,
+        });
+      }
 
       // Download complete -- remove from active and refresh local models
       const updated = new Map(get().activeDownloads);

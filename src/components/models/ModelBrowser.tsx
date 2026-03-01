@@ -5,7 +5,7 @@ import { LocalModels } from "./LocalModels";
 import { DownloadManager } from "./DownloadManager";
 
 type Tab = "recommended" | "local" | "downloads";
-type CategoryFilter = "all" | "general" | "code" | "small" | "large";
+type CategoryFilter = "all" | "general" | "code" | "small" | "large" | "vision";
 
 export function ModelBrowser() {
   const [tab, setTab] = useState<Tab>("recommended");
@@ -88,6 +88,7 @@ export function ModelBrowser() {
               <option value="small">Small (2-4B)</option>
               <option value="general">General (7-8B)</option>
               <option value="code">Code</option>
+              <option value="vision">Vision</option>
               <option value="large">Large (16B+)</option>
             </select>
           </div>

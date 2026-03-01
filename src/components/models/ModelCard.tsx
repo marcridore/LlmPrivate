@@ -17,6 +17,7 @@ const categoryColors: Record<string, string> = {
   code: "bg-purple-500/20 text-purple-400",
   large: "bg-orange-500/20 text-orange-400",
   chat: "bg-cyan-500/20 text-cyan-400",
+  vision: "bg-pink-500/20 text-pink-400",
 };
 
 const quantColors: Record<string, string> = {

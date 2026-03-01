@@ -121,10 +121,15 @@ export function LocalModels() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-medium text-sm">{model.name}</h3>
-                <div className="flex gap-2 mt-1 text-xs text-muted-foreground">
+                <div className="flex gap-2 mt-1 text-xs text-muted-foreground items-center">
                   <span>{formatBytes(model.file_size_bytes)}</span>
                   {model.quantization !== "unknown" && (
                     <span className="font-mono">{model.quantization}</span>
+                  )}
+                  {model.has_mmproj && (
+                    <span className="px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400 font-medium">
+                      Vision
+                    </span>
                   )}
                   {isThisLoading && (
                     <span className="text-yellow-400 animate-pulse">Loading model...</span>

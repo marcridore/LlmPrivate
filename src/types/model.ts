@@ -18,6 +18,7 @@ export interface LocalModelEntry {
   quantization: string;
   is_loaded: boolean;
   handle: number | null;
+  has_mmproj: boolean;
 }
 
 export interface DownloadProgress {
@@ -37,6 +38,8 @@ export interface RecommendedModel {
   param_count: string;
   quantization: string;
   min_ram_gb: number;
-  category: "general" | "code" | "chat" | "small" | "large";
+  category: "general" | "code" | "chat" | "small" | "large" | "vision";
   tags: string[];
+  mmproj_filename?: string | null;
+  mmproj_repo_id?: string | null;
 }

@@ -57,7 +57,9 @@
       "Bash(winget search \"NVIDIA\")",
       "Bash(winget upgrade)",
       "Bash(winget list)",
-      "Bash(find /c/Users/marcr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/llama-cpp-2-0.1.136 -name \"*.rs\" -type f -exec grep -l \"vision\\\\|image\\\\|llava\\\\|clip\" {} ;)"
+      "Bash(find /c/Users/marcr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/llama-cpp-2-0.1.136 -name \"*.rs\" -type f -exec grep -l \"vision\\\\|image\\\\|llava\\\\|clip\" {} ;)",
+      "Bash(taskkill //PID 17652 //F)",
+      "Bash(taskkill //PID 2452 //F)"
     ]
   }
 }

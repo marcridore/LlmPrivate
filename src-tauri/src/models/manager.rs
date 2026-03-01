@@ -62,26 +62,55 @@ impl ModelManager {
             return Ok(models);
         }
 
-        let entries = std::fs::read_dir(&self.models_dir)?;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("gguf") {
-                let metadata = std::fs::metadata(&path)?;
-                let name = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unknown")
-                    .to_string();
+        // Collect all gguf filenames to detect mmproj companions
+        let all_files: Vec<_> = std::fs::read_dir(&self.models_dir)?
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path().extension().and_then(|ext| ext.to_str()) == Some("gguf")
+            })
+            .collect();
 
-                models.push(LocalModelEntry {
-                    name,
-                    file_path: path,
-                    file_size_bytes: metadata.len(),
-                    quantization: "unknown".to_string(),
-                    is_loaded: false,
-                    handle: None,
-                });
+        let mmproj_names: Vec<String> = all_files
+            .iter()
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().to_lowercase();
+                if name.contains("mmproj") {
+                    Some(name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for entry in &all_files {
+            let path = entry.path();
+            let filename = entry.file_name().to_string_lossy().to_lowercase();
+
+            // Skip mmproj files — they are not standalone models
+            if filename.contains("mmproj") {
+                continue;
             }
+
+            let metadata = std::fs::metadata(&path)?;
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            // Check if there's a matching mmproj file in the same directory
+            let has_mmproj = !mmproj_names.is_empty()
+                && crate::backend::llama_cpp_backend::find_mmproj_file(&path).is_some();
+
+            models.push(LocalModelEntry {
+                name,
+                file_path: path,
+                file_size_bytes: metadata.len(),
+                quantization: "unknown".to_string(),
+                is_loaded: false,
+                handle: None,
+                has_mmproj,
+            });
         }
 
         Ok(models)

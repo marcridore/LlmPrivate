@@ -75,7 +75,11 @@ impl Database {
         Ok(id)
     }
 
-    pub fn list_conversations(&self) -> Result<Vec<ConversationSummary>, AppError> {
+    pub fn list_conversations(
+        &self,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<ConversationSummary>, AppError> {
         let conn = self.conn.lock().map_err(|_| AppError::LockContention)?;
         let mut stmt = conn.prepare(
             "SELECT c.id, c.title, c.model_name, c.created_at, c.updated_at,
@@ -83,11 +87,12 @@ impl Database {
              FROM conversations c
              LEFT JOIN messages m ON m.conversation_id = c.id
              GROUP BY c.id
-             ORDER BY c.updated_at DESC",
+             ORDER BY c.updated_at DESC
+             LIMIT ?1 OFFSET ?2",
         )?;
 
         let conversations = stmt
-            .query_map([], |row| {
+            .query_map(rusqlite::params![limit, offset], |row| {
                 Ok(ConversationSummary {
                     id: row.get(0)?,
                     title: row.get(1)?,
@@ -101,6 +106,27 @@ impl Database {
             .collect();
 
         Ok(conversations)
+    }
+
+    /// Auto-rename conversations still titled "New Chat" using the first user message.
+    pub fn rename_untitled_conversations(&self) -> Result<u64, AppError> {
+        let conn = self.conn.lock().map_err(|_| AppError::LockContention)?;
+        let renamed = conn.execute(
+            "UPDATE conversations SET title = (
+                SELECT SUBSTR(m.content, 1, 50)
+                FROM messages m
+                WHERE m.conversation_id = conversations.id AND m.role = 'user'
+                ORDER BY m.created_at ASC
+                LIMIT 1
+            )
+            WHERE title = 'New Chat'
+            AND EXISTS (
+                SELECT 1 FROM messages m
+                WHERE m.conversation_id = conversations.id AND m.role = 'user'
+            )",
+            [],
+        )?;
+        Ok(renamed as u64)
     }
 
     pub fn get_messages(&self, conversation_id: &str) -> Result<Vec<ChatMessage>, AppError> {
@@ -123,6 +149,7 @@ impl Database {
                 Ok(ChatMessage {
                     role,
                     content: row.get(1)?,
+                    images: vec![],
                 })
             })?
             .filter_map(|r| r.ok())
@@ -157,6 +184,31 @@ impl Database {
         )?;
 
         Ok(())
+    }
+
+    pub fn cleanup_empty_conversations(&self) -> Result<u64, AppError> {
+        let conn = self.conn.lock().map_err(|_| AppError::LockContention)?;
+
+        // Delete orphan messages for conversations we're about to remove
+        conn.execute(
+            "DELETE FROM messages WHERE conversation_id IN (
+                SELECT c.id FROM conversations c
+                WHERE c.id NOT IN (
+                    SELECT DISTINCT conversation_id FROM messages WHERE role = 'user'
+                )
+            )",
+            [],
+        )?;
+
+        // Delete conversations that have no user messages
+        // (covers both truly empty ones and ones with only assistant responses from old bugs)
+        let deleted = conn.execute(
+            "DELETE FROM conversations WHERE id NOT IN (
+                SELECT DISTINCT conversation_id FROM messages WHERE role = 'user'
+            )",
+            [],
+        )?;
+        Ok(deleted as u64)
     }
 
     pub fn delete_conversation(&self, conversation_id: &str) -> Result<(), AppError> {

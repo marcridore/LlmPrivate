@@ -1,9 +1,17 @@
+export interface ImageAttachment {
+  id: string;
+  filePath: string;
+  previewUrl: string;
+  altText?: string;
+}
+
 export interface Message {
   id: string;
   role: "system" | "user" | "assistant";
   content: string;
   createdAt: string;
   isStreaming?: boolean;
+  images?: ImageAttachment[];
 }
 
 export interface Conversation {

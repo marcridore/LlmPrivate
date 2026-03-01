@@ -69,6 +69,8 @@ impl InferenceBackend for StubBackend {
             embedding_length: None,
             vocab_size: None,
             backend: "stub".to_string(),
+            supports_vision: false,
+            mmproj_path: None,
         };
 
         self.loaded_models

@@ -40,6 +40,9 @@ pub enum AppError {
     #[error("API server error: {0}")]
     ApiServer(String),
 
+    #[error("Vision processing failed: {0}")]
+    Vision(String),
+
     #[error("Not found: {0}")]
     NotFound(String),
 }

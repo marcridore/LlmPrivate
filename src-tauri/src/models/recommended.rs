@@ -13,6 +13,12 @@ pub struct RecommendedModel {
     pub min_ram_gb: f64,
     pub category: ModelCategory,
     pub tags: Vec<String>,
+    /// Companion mmproj file for vision models (downloaded from same repo unless mmproj_repo_id set)
+    #[serde(default)]
+    pub mmproj_filename: Option<String>,
+    /// If mmproj is in a different HuggingFace repo
+    #[serde(default)]
+    pub mmproj_repo_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +29,7 @@ pub enum ModelCategory {
     Chat,
     Small,
     Large,
+    Vision,
 }
 
 pub fn get_recommended_models() -> Vec<RecommendedModel> {
@@ -40,6 +47,8 @@ pub fn get_recommended_models() -> Vec<RecommendedModel> {
             min_ram_gb: 4.0,
             category: ModelCategory::Small,
             tags: vec!["small".into(), "fast".into(), "reasoning".into()],
+            mmproj_filename: None,
+            mmproj_repo_id: None,
         },
         RecommendedModel {
             id: "qwen2.5-3b-q4".into(),
@@ -53,6 +62,8 @@ pub fn get_recommended_models() -> Vec<RecommendedModel> {
             min_ram_gb: 4.0,
             category: ModelCategory::Small,
             tags: vec!["small".into(), "multilingual".into()],
+            mmproj_filename: None,
+            mmproj_repo_id: None,
         },
         RecommendedModel {
             id: "gemma2-2b-q4".into(),
@@ -66,6 +77,8 @@ pub fn get_recommended_models() -> Vec<RecommendedModel> {
             min_ram_gb: 3.0,
             category: ModelCategory::Small,
             tags: vec!["tiny".into(), "fast".into(), "google".into()],
+            mmproj_filename: None,
+            mmproj_repo_id: None,
         },
 
         // === GENERAL PURPOSE (7-8B) ===
@@ -81,6 +94,8 @@ pub fn get_recommended_models() -> Vec<RecommendedModel> {
             min_ram_gb: 8.0,
             category: ModelCategory::General,
             tags: vec!["popular".into(), "general".into(), "meta".into()],
+            mmproj_filename: None,
+            mmproj_repo_id: None,
         },
         RecommendedModel {
             id: "mistral-7b-q4".into(),
@@ -94,6 +109,8 @@ pub fn get_recommended_models() -> Vec<RecommendedModel> {
             min_ram_gb: 8.0,
             category: ModelCategory::General,
             tags: vec!["popular".into(), "fast".into(), "mistral".into()],
+            mmproj_filename: None,
+            mmproj_repo_id: None,
         },
         RecommendedModel {
             id: "qwen2.5-7b-q4".into(),
@@ -107,6 +124,8 @@ pub fn get_recommended_models() -> Vec<RecommendedModel> {
             min_ram_gb: 8.0,
             category: ModelCategory::General,
             tags: vec!["top-rated".into(), "multilingual".into(), "code".into()],
+            mmproj_filename: None,
+            mmproj_repo_id: None,
         },
 
         // === CODE MODELS ===
@@ -122,6 +141,8 @@ pub fn get_recommended_models() -> Vec<RecommendedModel> {
             min_ram_gb: 12.0,
             category: ModelCategory::Code,
             tags: vec!["code".into(), "moe".into(), "deepseek".into()],
+            mmproj_filename: None,
+            mmproj_repo_id: None,
         },
         RecommendedModel {
             id: "codellama-7b-q4".into(),
@@ -135,6 +156,55 @@ pub fn get_recommended_models() -> Vec<RecommendedModel> {
             min_ram_gb: 8.0,
             category: ModelCategory::Code,
             tags: vec!["code".into(), "meta".into()],
+            mmproj_filename: None,
+            mmproj_repo_id: None,
+        },
+
+        // === VISION / MULTIMODAL MODELS ===
+        RecommendedModel {
+            id: "llava-v1.5-7b-q4".into(),
+            name: "LLaVA 1.5 7B".into(),
+            description: "Vision-language model. Describe images, answer questions about photos, read text from screenshots.".into(),
+            repo_id: "mys/ggml_llava-v1.5-7b".into(),
+            filename: "ggml-model-q4_k.gguf".into(),
+            size_bytes: 4_080_000_000,
+            param_count: "7B".into(),
+            quantization: "Q4_K".into(),
+            min_ram_gb: 8.0,
+            category: ModelCategory::Vision,
+            tags: vec!["vision".into(), "multimodal".into(), "images".into()],
+            mmproj_filename: Some("mmproj-model-f16.gguf".into()),
+            mmproj_repo_id: None,
+        },
+        RecommendedModel {
+            id: "llava-v1.5-13b-q4".into(),
+            name: "LLaVA 1.5 13B".into(),
+            description: "Larger vision model. More accurate image understanding. Needs 16GB+ RAM.".into(),
+            repo_id: "mys/ggml_llava-v1.5-13b".into(),
+            filename: "ggml-model-q4_k.gguf".into(),
+            size_bytes: 7_870_000_000,
+            param_count: "13B".into(),
+            quantization: "Q4_K".into(),
+            min_ram_gb: 16.0,
+            category: ModelCategory::Vision,
+            tags: vec!["vision".into(), "multimodal".into(), "accurate".into()],
+            mmproj_filename: Some("mmproj-model-f16.gguf".into()),
+            mmproj_repo_id: None,
+        },
+        RecommendedModel {
+            id: "moondream2-q8".into(),
+            name: "Moondream2 1.9B".into(),
+            description: "Tiny but capable vision model. Runs on low-RAM systems. Fast image understanding.".into(),
+            repo_id: "vikhyatk/moondream2-gguf".into(),
+            filename: "moondream2-text-model-f16.gguf".into(),
+            size_bytes: 3_670_000_000,
+            param_count: "1.9B".into(),
+            quantization: "F16".into(),
+            min_ram_gb: 4.0,
+            category: ModelCategory::Vision,
+            tags: vec!["vision".into(), "tiny".into(), "fast".into()],
+            mmproj_filename: Some("moondream2-mmproj-f16.gguf".into()),
+            mmproj_repo_id: None,
         },
 
         // === LARGER MODELS (for 16GB+ RAM) ===
@@ -150,6 +220,8 @@ pub fn get_recommended_models() -> Vec<RecommendedModel> {
             min_ram_gb: 24.0,
             category: ModelCategory::Large,
             tags: vec!["powerful".into(), "moe".into(), "mistral".into()],
+            mmproj_filename: None,
+            mmproj_repo_id: None,
         },
         RecommendedModel {
             id: "llama3.1-8b-q8".into(),
@@ -163,6 +235,8 @@ pub fn get_recommended_models() -> Vec<RecommendedModel> {
             min_ram_gb: 12.0,
             category: ModelCategory::Large,
             tags: vec!["high-quality".into(), "meta".into()],
+            mmproj_filename: None,
+            mmproj_repo_id: None,
         },
     ]
 }

@@ -35,9 +35,19 @@ impl Default for ModelLoadParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageAttachment {
+    pub id: String,
+    pub file_path: String,
+    #[serde(default)]
+    pub alt_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: Role,
     pub content: String,
+    #[serde(default)]
+    pub images: Vec<ImageAttachment>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +124,10 @@ pub struct ModelInfo {
     pub embedding_length: Option<u32>,
     pub vocab_size: Option<u32>,
     pub backend: String,
+    #[serde(default)]
+    pub supports_vision: bool,
+    #[serde(default)]
+    pub mmproj_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +144,8 @@ pub struct LocalModelEntry {
     pub quantization: String,
     pub is_loaded: bool,
     pub handle: Option<ModelHandle>,
+    #[serde(default)]
+    pub has_mmproj: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

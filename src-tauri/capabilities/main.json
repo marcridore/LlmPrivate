@@ -3,6 +3,7 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:default",
     "notification:default",
     "dialog:default",
     "fs:default"

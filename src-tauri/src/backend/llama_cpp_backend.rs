@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::num::NonZeroU32;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -85,7 +85,288 @@ fn build_model_info(
         embedding_length: None,
         vocab_size: Some(model.n_vocab() as u32),
         backend: "llama.cpp".to_string(),
+        supports_vision: false,
+        mmproj_path: None,
     }
+}
+
+// ── Multimodal helpers ────────────────────────────────────────────────────
+
+/// Scan the model's directory for a matching mmproj GGUF file.
+pub fn find_mmproj_file(model_path: &Path) -> Option<PathBuf> {
+    let parent = model_path.parent()?;
+    let model_stem = model_path.file_stem()?.to_str()?.to_lowercase();
+
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(parent)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy().to_lowercase();
+            name.ends_with(".gguf") && name.contains("mmproj")
+        })
+        .map(|e| e.path())
+        .collect();
+
+    if entries.is_empty() {
+        return None;
+    }
+
+    // Prefer files sharing a name prefix with the model
+    let model_prefix: String = model_stem
+        .split(|c: char| c == '-' || c == '_')
+        .take(3)
+        .collect::<Vec<_>>()
+        .join("-");
+
+    entries.sort();
+    for entry in &entries {
+        let name = entry.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+        if name.starts_with(&model_prefix) {
+            return Some(entry.clone());
+        }
+    }
+
+    // Fallback: any mmproj file in the same directory
+    Some(entries.remove(0))
+}
+
+#[cfg(feature = "mtmd")]
+fn format_multimodal_prompt(
+    model: &llama_cpp_2::model::LlamaModel,
+    messages: &[ChatMessage],
+) -> (String, Vec<String>) {
+    let media_marker = llama_cpp_2::mtmd::mtmd_default_marker();
+    let mut image_paths = Vec::new();
+
+    let chat_messages: Vec<llama_cpp_2::model::LlamaChatMessage> = messages
+        .iter()
+        .filter_map(|m| {
+            let role = match m.role {
+                Role::System => "system",
+                Role::User => "user",
+                Role::Assistant => "assistant",
+            };
+
+            let content = if !m.images.is_empty() && matches!(m.role, Role::User) {
+                let markers: String = m.images.iter().map(|img| {
+                    image_paths.push(img.file_path.clone());
+                    format!("{}\n", media_marker)
+                }).collect();
+                format!("{}{}", markers, m.content)
+            } else {
+                m.content.clone()
+            };
+
+            llama_cpp_2::model::LlamaChatMessage::new(role.to_string(), content).ok()
+        })
+        .collect();
+
+    if let Ok(template) = model.chat_template(None) {
+        if let Ok(formatted) = model.apply_chat_template(&template, &chat_messages, true) {
+            return (formatted, image_paths);
+        }
+    }
+
+    // Fallback ChatML
+    let mut prompt = String::new();
+    for msg in messages {
+        let role = match msg.role {
+            Role::System => "system",
+            Role::User => "user",
+            Role::Assistant => "assistant",
+        };
+        let content = if !msg.images.is_empty() && matches!(msg.role, Role::User) {
+            let markers: String = msg.images.iter().map(|_| {
+                format!("{}\n", media_marker)
+            }).collect();
+            format!("{}{}", markers, msg.content)
+        } else {
+            msg.content.clone()
+        };
+        prompt.push_str(&format!("<|im_start|>{}\n{}<|im_end|>\n", role, content));
+    }
+    prompt.push_str("<|im_start|>assistant\n");
+    (prompt, image_paths)
+}
+
+#[cfg(feature = "mtmd")]
+fn run_generation_multimodal(
+    backend: &llama_cpp_2::llama_backend::LlamaBackend,
+    model: &llama_cpp_2::model::LlamaModel,
+    mtmd_ctx: &llama_cpp_2::mtmd::MtmdContext,
+    load_params: &ModelLoadParams,
+    request: GenerationRequest,
+    token_tx: &mpsc::UnboundedSender<TokenEvent>,
+    cancel_flag: &Arc<AtomicBool>,
+) -> Result<GenerationResponse, AppError> {
+    let start = Instant::now();
+
+    // 1. Build prompt with <__media__> markers
+    let (prompt_text, image_paths) = format_multimodal_prompt(model, &request.messages);
+
+    let media_marker = llama_cpp_2::mtmd::mtmd_default_marker();
+    let marker_count = prompt_text.matches(media_marker).count();
+
+    if marker_count != image_paths.len() {
+        return Err(AppError::Vision(format!(
+            "Marker count ({}) != image count ({})",
+            marker_count, image_paths.len()
+        )));
+    }
+
+    tracing::info!(
+        "Multimodal prompt: {} images, {} chars",
+        image_paths.len(), prompt_text.len()
+    );
+
+    // 2. Load bitmaps
+    let bitmaps: Vec<llama_cpp_2::mtmd::MtmdBitmap> = image_paths
+        .iter()
+        .map(|path| {
+            llama_cpp_2::mtmd::MtmdBitmap::from_file(mtmd_ctx, path)
+                .map_err(|e| AppError::Vision(format!(
+                    "Failed to load image '{}': {}", path, e
+                )))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let bitmap_refs: Vec<&llama_cpp_2::mtmd::MtmdBitmap> = bitmaps.iter().collect();
+
+    // 3. Tokenize with mtmd
+    let input_text = llama_cpp_2::mtmd::MtmdInputText {
+        text: prompt_text,
+        add_special: true,
+        parse_special: true,
+    };
+
+    let chunks = mtmd_ctx.tokenize(input_text, &bitmap_refs)
+        .map_err(|e| AppError::Vision(format!("Multimodal tokenization failed: {e}")))?;
+
+    let total_tokens = chunks.total_tokens();
+    tracing::info!(
+        "Multimodal tokenized: {} chunks, {} total tokens",
+        chunks.len(), total_tokens
+    );
+
+    // 4. Create context
+    let n_ctx = load_params.n_ctx;
+    let n_threads = load_params.n_threads.unwrap_or_else(|| {
+        std::cmp::max(1, num_cpus() / 2) as u32
+    });
+
+    let ctx_params = llama_cpp_2::context::params::LlamaContextParams::default()
+        .with_n_ctx(NonZeroU32::new(n_ctx))
+        .with_n_threads(n_threads as i32)
+        .with_n_threads_batch(n_threads as i32);
+
+    let mut ctx = model
+        .new_context(backend, ctx_params)
+        .map_err(|e| AppError::ContextLoad(format!("Failed to create context: {e}")))?;
+
+    // 5. Evaluate all chunks (replaces manual batch decode)
+    let n_past = chunks.eval_chunks(
+        mtmd_ctx,
+        &ctx,
+        0,
+        0,
+        n_ctx as i32,
+        true,
+    ).map_err(|e| AppError::Vision(format!("eval_chunks failed: {e}")))?;
+
+    let prompt_token_count = total_tokens as u32;
+    let max_generation = std::cmp::min(
+        request.max_tokens as i32,
+        n_ctx as i32 - n_past,
+    );
+
+    if max_generation <= 0 {
+        return Err(AppError::Generation(format!(
+            "Context full after multimodal prompt ({} positions)", n_past
+        )));
+    }
+
+    let n_len = n_past + max_generation;
+
+    tracing::info!(
+        "Multimodal prompt evaluated: {} positions, max generation: {}",
+        n_past, max_generation
+    );
+
+    // 6. Token generation loop (same as text-only)
+    let mut sampler = build_sampler(&request);
+    let mut decoder = encoding_rs::UTF_8.new_decoder();
+    let mut n_cur = n_past;
+    let mut n_decode: u32 = 0;
+    let mut full_response = String::new();
+    let mut batch = llama_cpp_2::llama_batch::LlamaBatch::new(n_ctx as usize, 1);
+
+    loop {
+        if cancel_flag.load(Ordering::Relaxed) {
+            tracing::info!("Generation cancelled after {n_decode} tokens");
+            let _ = token_tx.send(TokenEvent::Done {
+                total_tokens: n_decode,
+                generation_time_ms: start.elapsed().as_millis() as u64,
+                tokens_per_second: calc_tps(n_decode, &start),
+                prompt_tokens: prompt_token_count,
+            });
+            return Ok(build_response(
+                full_response, prompt_token_count, n_decode, &start, "cancelled",
+            ));
+        }
+
+        if n_cur >= n_len {
+            break;
+        }
+
+        // Sample token — use -1 to sample from last logit position
+        let sample_idx = if n_decode == 0 { -1i32 } else { batch.n_tokens() - 1 };
+        let token = sampler.sample(&ctx, sample_idx);
+        sampler.accept(token);
+
+        if model.is_eog_token(token) {
+            tracing::info!("EOS token reached after {n_decode} tokens");
+            break;
+        }
+
+        let piece = model
+            .token_to_piece(token, &mut decoder, false, None)
+            .map_err(|e| AppError::Generation(format!("Token decode failed: {e}")))?;
+
+        if !piece.is_empty() {
+            full_response.push_str(&piece);
+            let _ = token_tx.send(TokenEvent::Token {
+                text: piece,
+                token_index: n_decode,
+            });
+        }
+
+        n_decode += 1;
+
+        batch.clear();
+        batch
+            .add(token, n_cur, &[0], true)
+            .map_err(|e| AppError::Generation(format!("Batch add failed: {e}")))?;
+        n_cur += 1;
+
+        ctx.decode(&mut batch)
+            .map_err(|e| AppError::Generation(format!("Decode failed at token {n_decode}: {e}")))?;
+    }
+
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+    let tps = calc_tps(n_decode, &start);
+
+    tracing::info!("Generation complete: {n_decode} tokens in {elapsed_ms}ms ({tps:.1} t/s)");
+
+    let _ = token_tx.send(TokenEvent::Done {
+        total_tokens: n_decode,
+        generation_time_ms: elapsed_ms,
+        tokens_per_second: tps,
+        prompt_tokens: prompt_token_count,
+    });
+
+    Ok(build_response(
+        full_response, prompt_token_count, n_decode, &start, "stop",
+    ))
 }
 
 // ── Core generation logic (runs on the model thread) ────────────────────────
@@ -442,7 +723,52 @@ impl InferenceBackend for LlamaCppBackend {
                     }
                 };
 
-                let info = build_model_info(&model, &model_path, &params_clone);
+                // Try to initialize multimodal context
+                #[cfg(feature = "mtmd")]
+                let mtmd_ctx: Option<llama_cpp_2::mtmd::MtmdContext> = {
+                    let mmproj = find_mmproj_file(&model_path);
+                    mmproj.and_then(|mmproj_path| {
+                        let mmproj_str = mmproj_path.to_str()?;
+                        let gpu_active = cfg!(feature = "cuda") || cfg!(feature = "vulkan");
+                        let mtmd_params = llama_cpp_2::mtmd::MtmdContextParams {
+                            use_gpu: gpu_active && params_clone.n_gpu_layers > 0,
+                            print_timings: false,
+                            n_threads: params_clone.n_threads.unwrap_or_else(|| {
+                                std::cmp::max(1, num_cpus() / 2) as u32
+                            }) as i32,
+                            media_marker: std::ffi::CString::new(
+                                llama_cpp_2::mtmd::mtmd_default_marker()
+                            ).unwrap(),
+                        };
+
+                        match llama_cpp_2::mtmd::MtmdContext::init_from_file(
+                            mmproj_str, &model, &mtmd_params
+                        ) {
+                            Ok(ctx) => {
+                                tracing::info!(
+                                    "Multimodal context loaded (vision={}, mmproj={})",
+                                    ctx.support_vision(), mmproj_str
+                                );
+                                Some(ctx)
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to init multimodal context: {e}");
+                                None
+                            }
+                        }
+                    })
+                };
+
+                let mut info = build_model_info(&model, &model_path, &params_clone);
+
+                #[cfg(feature = "mtmd")]
+                {
+                    if let Some(ref ctx) = mtmd_ctx {
+                        info.supports_vision = ctx.support_vision();
+                        info.mmproj_path = find_mmproj_file(&model_path);
+                    }
+                }
+
                 let _ = ready_tx.send(Ok(info));
 
                 tracing::info!("Model thread {} ready, entering command loop", handle);
@@ -463,9 +789,31 @@ impl InferenceBackend for LlamaCppBackend {
                         } => {
                             tracing::info!("Generation request on model thread {}", handle);
 
+                            // Check if this request has images and we have multimodal support
+                            #[cfg(feature = "mtmd")]
+                            let has_images = request.messages.iter().any(|m| !m.images.is_empty());
+                            #[cfg(not(feature = "mtmd"))]
+                            let has_images = false;
+
                             // Catch panics from llama.cpp so the thread survives
                             let result = std::panic::catch_unwind(
                                 std::panic::AssertUnwindSafe(|| {
+                                    #[cfg(feature = "mtmd")]
+                                    if has_images {
+                                        if let Some(ref ctx) = mtmd_ctx {
+                                            return run_generation_multimodal(
+                                                &backend,
+                                                &model,
+                                                ctx,
+                                                &params_clone,
+                                                request,
+                                                &token_tx,
+                                                &cancel_flag,
+                                            );
+                                        }
+                                    }
+                                    let _ = has_images; // suppress unused warning
+
                                     run_generation(
                                         &backend,
                                         &model,
@@ -498,7 +846,12 @@ impl InferenceBackend for LlamaCppBackend {
                             let _ = done_tx.send(response);
                         }
                         SessionCommand::GetInfo { done_tx } => {
-                            let info = build_model_info(&model, &model_path, &params_clone);
+                            let mut info = build_model_info(&model, &model_path, &params_clone);
+                            #[cfg(feature = "mtmd")]
+                            if let Some(ref ctx) = mtmd_ctx {
+                                info.supports_vision = ctx.support_vision();
+                                info.mmproj_path = find_mmproj_file(&model_path);
+                            }
                             let _ = done_tx.send(info);
                         }
                         SessionCommand::Shutdown => {

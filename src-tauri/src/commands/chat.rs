@@ -44,6 +44,7 @@ pub async fn send_message(
             &ChatMessage {
                 role: Role::Assistant,
                 content: response.content,
+                images: vec![],
             },
         )?;
 
@@ -63,8 +64,12 @@ pub async fn stop_generation(
 #[tauri::command]
 pub async fn get_conversations(
     state: State<'_, AppState>,
+    limit: Option<u32>,
+    offset: Option<u32>,
 ) -> Result<Vec<ConversationSummary>, AppError> {
-    state.db.list_conversations()
+    state
+        .db
+        .list_conversations(limit.unwrap_or(30), offset.unwrap_or(0))
 }
 
 #[tauri::command]
@@ -76,11 +81,36 @@ pub async fn get_messages(
 }
 
 #[tauri::command]
+pub async fn save_user_message(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    content: String,
+) -> Result<(), AppError> {
+    state.db.save_message(
+        &conversation_id,
+        &ChatMessage {
+            role: Role::User,
+            content,
+            images: vec![],
+        },
+    )
+}
+
+#[tauri::command]
 pub async fn create_conversation(
     state: State<'_, AppState>,
     title: Option<String>,
 ) -> Result<String, AppError> {
     state.db.create_conversation(title.as_deref())
+}
+
+#[tauri::command]
+pub async fn cleanup_empty_conversations(
+    state: State<'_, AppState>,
+) -> Result<u64, AppError> {
+    // Also auto-rename old "New Chat" conversations
+    let _ = state.db.rename_untitled_conversations();
+    state.db.cleanup_empty_conversations()
 }
 
 #[tauri::command]
