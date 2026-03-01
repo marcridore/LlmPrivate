@@ -1,0 +1,61 @@
+[package]
+name = "llm-private"
+version = "0.1.0"
+edition = "2021"
+description = "A lightweight local LLM desktop app"
+
+[features]
+default = []
+cuda = ["llama-cpp-2/cuda"]
+vulkan = ["llama-cpp-2/vulkan"]
+
+[lib]
+name = "llm_private_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-updater = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+
+# Async
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error Handling
+thiserror = "2"
+anyhow = "1"
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# HTTP API Server
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# HTTP Client (HuggingFace downloads)
+reqwest = { version = "0.12", features = ["stream", "json"] }
+futures-util = "0.3"
+
+# LLM Inference
+llama-cpp-2 = "0.1.133"
+encoding_rs = "0.8"
+
+# System Monitoring
+sysinfo = "0.33"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"

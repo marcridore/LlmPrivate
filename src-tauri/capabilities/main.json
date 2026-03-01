@@ -1,0 +1,10 @@
+{
+  "identifier": "main-capability",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "dialog:default",
+    "fs:default"
+  ]
+}

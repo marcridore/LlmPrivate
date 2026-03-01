@@ -1,0 +1,168 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecommendedModel {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub repo_id: String,
+    pub filename: String,
+    pub size_bytes: u64,
+    pub param_count: String,
+    pub quantization: String,
+    pub min_ram_gb: f64,
+    pub category: ModelCategory,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelCategory {
+    General,
+    Code,
+    Chat,
+    Small,
+    Large,
+}
+
+pub fn get_recommended_models() -> Vec<RecommendedModel> {
+    vec![
+        // === SMALL / LOW-RAM MODELS ===
+        RecommendedModel {
+            id: "phi3-mini-q4".into(),
+            name: "Phi-3 Mini 3.8B".into(),
+            description: "Microsoft's compact model. Great for low-RAM systems. Strong reasoning for its size.".into(),
+            repo_id: "bartowski/Phi-3.1-mini-4k-instruct-GGUF".into(),
+            filename: "Phi-3.1-mini-4k-instruct-Q4_K_M.gguf".into(),
+            size_bytes: 2_394_000_000,
+            param_count: "3.8B".into(),
+            quantization: "Q4_K_M".into(),
+            min_ram_gb: 4.0,
+            category: ModelCategory::Small,
+            tags: vec!["small".into(), "fast".into(), "reasoning".into()],
+        },
+        RecommendedModel {
+            id: "qwen2.5-3b-q4".into(),
+            name: "Qwen 2.5 3B".into(),
+            description: "Alibaba's efficient 3B model. Excellent multilingual support.".into(),
+            repo_id: "Qwen/Qwen2.5-3B-Instruct-GGUF".into(),
+            filename: "qwen2.5-3b-instruct-q4_k_m.gguf".into(),
+            size_bytes: 2_058_000_000,
+            param_count: "3B".into(),
+            quantization: "Q4_K_M".into(),
+            min_ram_gb: 4.0,
+            category: ModelCategory::Small,
+            tags: vec!["small".into(), "multilingual".into()],
+        },
+        RecommendedModel {
+            id: "gemma2-2b-q4".into(),
+            name: "Gemma 2 2B".into(),
+            description: "Google's tiny but capable model. Runs on almost anything.".into(),
+            repo_id: "bartowski/gemma-2-2b-it-GGUF".into(),
+            filename: "gemma-2-2b-it-Q4_K_M.gguf".into(),
+            size_bytes: 1_630_000_000,
+            param_count: "2B".into(),
+            quantization: "Q4_K_M".into(),
+            min_ram_gb: 3.0,
+            category: ModelCategory::Small,
+            tags: vec!["tiny".into(), "fast".into(), "google".into()],
+        },
+
+        // === GENERAL PURPOSE (7-8B) ===
+        RecommendedModel {
+            id: "llama3.1-8b-q4".into(),
+            name: "Llama 3.1 8B".into(),
+            description: "Meta's flagship open model. Best all-around performance at 8B.".into(),
+            repo_id: "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF".into(),
+            filename: "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf".into(),
+            size_bytes: 4_920_000_000,
+            param_count: "8B".into(),
+            quantization: "Q4_K_M".into(),
+            min_ram_gb: 8.0,
+            category: ModelCategory::General,
+            tags: vec!["popular".into(), "general".into(), "meta".into()],
+        },
+        RecommendedModel {
+            id: "mistral-7b-q4".into(),
+            name: "Mistral 7B v0.3".into(),
+            description: "Fast and efficient. Great balance of speed and quality.".into(),
+            repo_id: "bartowski/Mistral-7B-Instruct-v0.3-GGUF".into(),
+            filename: "Mistral-7B-Instruct-v0.3-Q4_K_M.gguf".into(),
+            size_bytes: 4_370_000_000,
+            param_count: "7B".into(),
+            quantization: "Q4_K_M".into(),
+            min_ram_gb: 8.0,
+            category: ModelCategory::General,
+            tags: vec!["popular".into(), "fast".into(), "mistral".into()],
+        },
+        RecommendedModel {
+            id: "qwen2.5-7b-q4".into(),
+            name: "Qwen 2.5 7B".into(),
+            description: "Top-tier 7B model. Strong coding and multilingual capabilities.".into(),
+            repo_id: "Qwen/Qwen2.5-7B-Instruct-GGUF".into(),
+            filename: "qwen2.5-7b-instruct-q4_k_m.gguf".into(),
+            size_bytes: 4_680_000_000,
+            param_count: "7B".into(),
+            quantization: "Q4_K_M".into(),
+            min_ram_gb: 8.0,
+            category: ModelCategory::General,
+            tags: vec!["top-rated".into(), "multilingual".into(), "code".into()],
+        },
+
+        // === CODE MODELS ===
+        RecommendedModel {
+            id: "deepseek-coder-v2-lite-q4".into(),
+            name: "DeepSeek Coder V2 Lite".into(),
+            description: "Purpose-built for coding. Excellent at code generation and debugging.".into(),
+            repo_id: "bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF".into(),
+            filename: "DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf".into(),
+            size_bytes: 9_030_000_000,
+            param_count: "16B (MoE)".into(),
+            quantization: "Q4_K_M".into(),
+            min_ram_gb: 12.0,
+            category: ModelCategory::Code,
+            tags: vec!["code".into(), "moe".into(), "deepseek".into()],
+        },
+        RecommendedModel {
+            id: "codellama-7b-q4".into(),
+            name: "Code Llama 7B".into(),
+            description: "Meta's code-specialized Llama. Good for code completion and generation.".into(),
+            repo_id: "TheBloke/CodeLlama-7B-Instruct-GGUF".into(),
+            filename: "codellama-7b-instruct.Q4_K_M.gguf".into(),
+            size_bytes: 4_080_000_000,
+            param_count: "7B".into(),
+            quantization: "Q4_K_M".into(),
+            min_ram_gb: 8.0,
+            category: ModelCategory::Code,
+            tags: vec!["code".into(), "meta".into()],
+        },
+
+        // === LARGER MODELS (for 16GB+ RAM) ===
+        RecommendedModel {
+            id: "mixtral-8x7b-q3".into(),
+            name: "Mixtral 8x7B".into(),
+            description: "Mistral's MoE model. Near-GPT-3.5 quality. Needs 16GB+ RAM.".into(),
+            repo_id: "TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF".into(),
+            filename: "mixtral-8x7b-instruct-v0.1.Q3_K_M.gguf".into(),
+            size_bytes: 21_600_000_000,
+            param_count: "46.7B (MoE)".into(),
+            quantization: "Q3_K_M".into(),
+            min_ram_gb: 24.0,
+            category: ModelCategory::Large,
+            tags: vec!["powerful".into(), "moe".into(), "mistral".into()],
+        },
+        RecommendedModel {
+            id: "llama3.1-8b-q8".into(),
+            name: "Llama 3.1 8B (High Quality)".into(),
+            description: "Same model, higher quantization. Better quality if you have the RAM.".into(),
+            repo_id: "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF".into(),
+            filename: "Meta-Llama-3.1-8B-Instruct-Q8_0.gguf".into(),
+            size_bytes: 8_540_000_000,
+            param_count: "8B".into(),
+            quantization: "Q8_0".into(),
+            min_ram_gb: 12.0,
+            category: ModelCategory::Large,
+            tags: vec!["high-quality".into(), "meta".into()],
+        },
+    ]
+}
