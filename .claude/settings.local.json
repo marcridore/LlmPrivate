@@ -152,7 +152,8 @@
       "Bash(powershell -Command \"Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 20 Name, @{N=''MB'';E={[math]::Round\\($_WorkingSet64/1MB,0\\)}}, Id | Format-Table -AutoSize\")",
       "Bash(powershell -File:*)",
       "Bash(cargo test --manifest-path src-tauri/Cargo.toml -p llm-private-lib chunker)",
-      "Bash(cargo test --manifest-path src-tauri/Cargo.toml chunker)"
+      "Bash(cargo test --manifest-path src-tauri/Cargo.toml chunker)",
+      "Bash(npx tsc --noEmit --pretty)"
     ]
   }
 }

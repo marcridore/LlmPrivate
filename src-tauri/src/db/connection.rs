@@ -10,20 +10,65 @@ use crate::error::AppError;
 
 pub struct Database {
     conn: Mutex<Connection>,
+    db_path: PathBuf,
 }
 
 impl Database {
     pub fn new(data_dir: PathBuf) -> Result<Self, AppError> {
         std::fs::create_dir_all(&data_dir)?;
         let db_path = data_dir.join("llmprivate.db");
-        let conn = Connection::open(db_path)
+        let conn = Connection::open(&db_path)
             .map_err(|e| AppError::Database(format!("Failed to open database: {}", e)))?;
 
         let db = Self {
             conn: Mutex::new(conn),
+            db_path,
         };
         db.run_migrations()?;
         Ok(db)
+    }
+
+    /// Path to the SQLite database file.
+    pub fn db_path(&self) -> &std::path::Path {
+        &self.db_path
+    }
+
+    /// Create a consistent snapshot of the database at `dest` using VACUUM INTO.
+    pub fn vacuum_into(&self, dest: &std::path::Path) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|_| AppError::LockContention)?;
+        let dest_str = dest.to_string_lossy().replace('\'', "''");
+        conn.execute_batch(&format!("VACUUM INTO '{dest_str}'"))
+            .map_err(|e| AppError::Database(format!("VACUUM INTO failed: {e}")))?;
+        Ok(())
+    }
+
+    /// Replace the current database file with a new one and reopen the connection.
+    pub fn replace_and_reopen(&self, new_db_file: &std::path::Path) -> Result<(), AppError> {
+        let mut conn = self.conn.lock().map_err(|_| AppError::LockContention)?;
+        // Close existing connection by swapping to an in-memory DB temporarily
+        *conn = Connection::open_in_memory()
+            .map_err(|e| AppError::Database(format!("Failed to open temp DB: {e}")))?;
+        // Replace DB file on disk
+        std::fs::copy(new_db_file, &self.db_path)?;
+        // Reopen the real database
+        *conn = Connection::open(&self.db_path)
+            .map_err(|e| AppError::Database(format!("Failed to reopen database: {e}")))?;
+        conn.execute_batch("PRAGMA foreign_keys = ON;")
+            .map_err(|e| AppError::Database(format!("PRAGMA failed: {e}")))?;
+        drop(conn);
+        self.run_migrations()?;
+        Ok(())
+    }
+
+    /// Rewrite absolute file_path values in the documents table for a new machine.
+    pub fn rewrite_document_paths(&self, old_prefix: &str, new_prefix: &str) -> Result<u64, AppError> {
+        let conn = self.conn.lock().map_err(|_| AppError::LockContention)?;
+        let like_pattern = format!("{old_prefix}%");
+        let changed = conn.execute(
+            "UPDATE documents SET file_path = REPLACE(file_path, ?1, ?2) WHERE file_path LIKE ?3",
+            rusqlite::params![old_prefix, new_prefix, like_pattern],
+        )?;
+        Ok(changed as u64)
     }
 
     pub fn run_migrations(&self) -> Result<(), AppError> {

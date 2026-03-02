@@ -68,7 +68,7 @@ export function Sidebar() {
   return (
     <div className="w-64 border-r border-border bg-card flex flex-col h-full">
       {/* Nav links */}
-      <div className="flex gap-1 p-2 border-b border-border">
+      <div className="flex flex-wrap gap-1 p-2 border-b border-border">
         {(["chat", "documents", "models", "monitor", "settings"] as const).map((page) => (
           <button
             key={page}

@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod chat;
 pub mod documents;
 pub mod models;

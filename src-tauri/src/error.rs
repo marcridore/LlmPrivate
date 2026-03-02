@@ -46,6 +46,9 @@ pub enum AppError {
     #[error("Document processing error: {0}")]
     Document(String),
 
+    #[error("Backup error: {0}")]
+    Backup(String),
+
     #[error("Not found: {0}")]
     NotFound(String),
 }

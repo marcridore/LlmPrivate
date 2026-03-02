@@ -217,6 +217,9 @@ pub fn run() {
             // Settings
             commands::settings::get_settings,
             commands::settings::update_settings,
+            // Backup & Restore
+            commands::backup::export_backup,
+            commands::backup::import_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LlmPrivate");
