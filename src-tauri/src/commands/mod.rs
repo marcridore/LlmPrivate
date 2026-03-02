@@ -1,4 +1,5 @@
 pub mod chat;
+pub mod documents;
 pub mod models;
 pub mod settings;
 pub mod system;

@@ -42,6 +42,11 @@ export function Sidebar() {
           onClick={() => setActivePage("chat")}
         />
         <NavIcon
+          icon="docs"
+          active={activePage === "documents"}
+          onClick={() => setActivePage("documents")}
+        />
+        <NavIcon
           icon="model"
           active={activePage === "models"}
           onClick={() => setActivePage("models")}
@@ -64,7 +69,7 @@ export function Sidebar() {
     <div className="w-64 border-r border-border bg-card flex flex-col h-full">
       {/* Nav links */}
       <div className="flex gap-1 p-2 border-b border-border">
-        {(["chat", "models", "monitor", "settings"] as const).map((page) => (
+        {(["chat", "documents", "models", "monitor", "settings"] as const).map((page) => (
           <button
             key={page}
             onClick={() => setActivePage(page)}

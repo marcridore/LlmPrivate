@@ -2,6 +2,7 @@ mod api;
 mod backend;
 mod commands;
 mod db;
+mod documents;
 mod error;
 mod models;
 #[allow(dead_code)]
@@ -197,6 +198,22 @@ pub fn run() {
             commands::system::get_model_recommendation,
             commands::system::get_model_capabilities,
             commands::system::save_clipboard_image,
+            // Documents
+            commands::documents::create_doc_folder,
+            commands::documents::rename_doc_folder,
+            commands::documents::delete_doc_folder,
+            commands::documents::move_doc_folder,
+            commands::documents::get_doc_folder_tree,
+            commands::documents::add_document,
+            commands::documents::delete_document,
+            commands::documents::get_document,
+            commands::documents::get_documents_in_folder,
+            commands::documents::search_document_chunks,
+            commands::documents::chat_with_documents,
+            commands::documents::create_doc_chat_session,
+            commands::documents::list_doc_chat_sessions,
+            commands::documents::get_doc_chat_document_ids,
+            commands::documents::toggle_doc_chat_pin,
             // Settings
             commands::settings::get_settings,
             commands::settings::update_settings,

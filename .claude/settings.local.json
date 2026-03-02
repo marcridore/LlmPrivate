@@ -144,7 +144,15 @@
       "Bash(/c/Users/marcr/AppData/Local/Programs/Python/Python312/python.exe -c \"import sys,json; r=json.load\\(sys.stdin\\); print\\(''prompt tokens:'', r.get\\(''tokens_evaluated''\\)\\)\")",
       "WebFetch(domain:deepwiki.com)",
       "Bash(curl -s --max-time 60 http://127.0.0.1:8990/v1/chat/completions -H \"Content-Type: application/json\" -d \"{:*)",
-      "Bash(cargo check --manifest-path src-tauri/Cargo.toml)"
+      "Bash(cargo check --manifest-path src-tauri/Cargo.toml)",
+      "Bash(xargs grep -l \"file\\\\|document\\\\|upload\")",
+      "Bash(while tasklist)",
+      "Bash(do sleep 10)",
+      "Bash(done)",
+      "Bash(powershell -Command \"Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 20 Name, @{N=''MB'';E={[math]::Round\\($_WorkingSet64/1MB,0\\)}}, Id | Format-Table -AutoSize\")",
+      "Bash(powershell -File:*)",
+      "Bash(cargo test --manifest-path src-tauri/Cargo.toml -p llm-private-lib chunker)",
+      "Bash(cargo test --manifest-path src-tauri/Cargo.toml chunker)"
     ]
   }
 }

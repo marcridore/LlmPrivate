@@ -43,6 +43,9 @@ pub enum AppError {
     #[error("Vision processing failed: {0}")]
     Vision(String),
 
+    #[error("Document processing error: {0}")]
+    Document(String),
+
     #[error("Not found: {0}")]
     NotFound(String),
 }

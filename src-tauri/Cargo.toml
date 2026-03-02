@@ -56,6 +56,10 @@ encoding_rs = "0.8"
 # System Monitoring
 sysinfo = "0.33"
 
+# Document Parsing
+pdf-extract = "0.7"
+zip = "2"
+
 # Utilities
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }

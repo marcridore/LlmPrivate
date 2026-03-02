@@ -3,6 +3,7 @@ import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { ChatView } from "../chat/ChatView";
 import { ModelBrowser } from "../models/ModelBrowser";
+import { DocumentsPage } from "../documents/DocumentsPage";
 import { useUIStore } from "../../stores/uiStore";
 
 export function AppLayout() {
@@ -15,6 +16,7 @@ export function AppLayout() {
         <Sidebar />
         <main className="flex-1 flex flex-col overflow-hidden">
           {activePage === "chat" && <ChatView />}
+          {activePage === "documents" && <DocumentsPage />}
           {activePage === "models" && <ModelBrowser />}
           {activePage === "monitor" && <PlaceholderPage name="Resource Monitor" />}
           {activePage === "settings" && <PlaceholderPage name="Settings" />}
