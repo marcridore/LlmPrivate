@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::backend::BackendRegistry;
+use crate::backend::openclaw_server::OpenClawServer;
 use crate::backend::vision_server::VisionServer;
 use crate::db::connection::Database;
 use crate::models::downloader::DownloadManager;
@@ -16,4 +17,5 @@ pub struct AppState {
     pub resource_monitor: Arc<SystemResourceMonitor>,
     pub api_server_running: Arc<RwLock<bool>>,
     pub vision_server: Arc<VisionServer>,
+    pub openclaw_server: Arc<OpenClawServer>,
 }

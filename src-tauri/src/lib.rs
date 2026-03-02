@@ -16,6 +16,7 @@ use tauri::Manager;
 use tokio::sync::RwLock;
 
 use crate::backend::llama_cpp_backend::LlamaCppBackend;
+use crate::backend::openclaw_server::OpenClawServer;
 use crate::backend::vision_server::VisionServer;
 use crate::backend::BackendRegistry;
 use crate::state::AppState;
@@ -220,6 +221,18 @@ pub fn run() {
             // Backup & Restore
             commands::backup::export_backup,
             commands::backup::import_backup,
+            // OpenClaw Agent Integration
+            commands::openclaw::openclaw_check_prerequisites,
+            commands::openclaw::openclaw_install_node,
+            commands::openclaw::openclaw_install,
+            commands::openclaw::openclaw_start,
+            commands::openclaw::openclaw_stop,
+            commands::openclaw::openclaw_status,
+            commands::openclaw::openclaw_configure_provider,
+            commands::openclaw::openclaw_whatsapp_start,
+            commands::openclaw::openclaw_whatsapp_wait,
+            commands::openclaw::openclaw_whatsapp_logout,
+            commands::openclaw::openclaw_channel_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LlmPrivate");
@@ -266,5 +279,6 @@ fn initialize_app_state(
         resource_monitor,
         api_server_running: Arc::new(RwLock::new(false)),
         vision_server: Arc::new(VisionServer::new()),
+        openclaw_server: Arc::new(OpenClawServer::new()),
     }
 }

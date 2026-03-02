@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 type Theme = "light" | "dark";
-type Page = "chat" | "documents" | "models" | "monitor" | "settings";
+type Page = "chat" | "documents" | "models" | "monitor" | "agents" | "settings";
 
 interface UIState {
   theme: Theme;

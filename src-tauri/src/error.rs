@@ -49,6 +49,9 @@ pub enum AppError {
     #[error("Backup error: {0}")]
     Backup(String),
 
+    #[error("OpenClaw error: {0}")]
+    OpenClaw(String),
+
     #[error("Not found: {0}")]
     NotFound(String),
 }

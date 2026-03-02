@@ -5,6 +5,7 @@ import { ChatView } from "../chat/ChatView";
 import { ModelBrowser } from "../models/ModelBrowser";
 import { DocumentsPage } from "../documents/DocumentsPage";
 import { SettingsPage } from "../settings/SettingsPage";
+import { AgentsPage } from "../agents/AgentsPage";
 import { useUIStore } from "../../stores/uiStore";
 
 export function AppLayout() {
@@ -20,6 +21,7 @@ export function AppLayout() {
           {activePage === "documents" && <DocumentsPage />}
           {activePage === "models" && <ModelBrowser />}
           {activePage === "monitor" && <PlaceholderPage name="Resource Monitor" />}
+          {activePage === "agents" && <AgentsPage />}
           {activePage === "settings" && <SettingsPage />}
         </main>
       </div>
