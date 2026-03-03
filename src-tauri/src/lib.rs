@@ -233,6 +233,9 @@ pub fn run() {
             commands::openclaw::openclaw_whatsapp_wait,
             commands::openclaw::openclaw_whatsapp_logout,
             commands::openclaw::openclaw_channel_status,
+            commands::openclaw::openclaw_get_agent_model,
+            commands::openclaw::openclaw_get_whatsapp_config,
+            commands::openclaw::openclaw_set_whatsapp_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LlmPrivate");

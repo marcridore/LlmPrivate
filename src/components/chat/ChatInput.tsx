@@ -4,6 +4,7 @@ import { readFile } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "../../stores/chatStore";
 import { useModelStore } from "../../stores/modelStore";
+import { useAgentStore } from "../../stores/agentStore";
 import type { ImageAttachment } from "../../types/chat";
 
 /** Convert a Blob/File to a base64 string (no data URL prefix). */
@@ -26,7 +27,12 @@ export function ChatInput() {
   const pendingImages = useChatStore((s) => s.pendingImages);
   const addPendingImage = useChatStore((s) => s.addPendingImage);
   const removePendingImage = useChatStore((s) => s.removePendingImage);
+  const useOpenClaw = useChatStore((s) => s.useOpenClaw);
+  const setUseOpenClaw = useChatStore((s) => s.setUseOpenClaw);
   const supportsVision = useModelStore((s) => s.supportsVision);
+  const openclawRunning = useAgentStore((s) => s.openclawRunning);
+  const agentProvider = useAgentStore((s) => s.provider);
+  const agentModel = useAgentStore((s) => s.model);
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
@@ -168,6 +174,45 @@ export function ChatInput() {
         )}
 
         <div className="flex gap-2 items-end bg-muted rounded-lg p-2">
+          {/* Local/Cloud toggle */}
+          {openclawRunning && (
+            <button
+              onClick={() => setUseOpenClaw(!useOpenClaw)}
+              disabled={isGenerating}
+              className={`px-2 py-1 text-[10px] font-medium rounded transition-colors disabled:opacity-50 flex-shrink-0 ${
+                useOpenClaw
+                  ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                  : "bg-muted-foreground/10 text-muted-foreground border border-transparent hover:border-border"
+              }`}
+              title={
+                useOpenClaw
+                  ? `Using OpenClaw gateway (${agentProvider}/${agentModel})`
+                  : "Using local private model"
+              }
+            >
+              {useOpenClaw ? (
+                <span className="flex items-center gap-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+                  </svg>
+                  Cloud
+                </span>
+              ) : (
+                <span className="flex items-center gap-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect width="16" height="16" x="4" y="4" rx="2" />
+                    <rect width="6" height="6" x="9" y="9" rx="1" />
+                    <path d="M15 2v2" /><path d="M15 20v2" />
+                    <path d="M2 15h2" /><path d="M2 9h2" />
+                    <path d="M20 15h2" /><path d="M20 9h2" />
+                    <path d="M9 2v2" /><path d="M9 20v2" />
+                  </svg>
+                  Local
+                </span>
+              )}
+            </button>
+          )}
+
           {/* Image attach button — only when model supports vision */}
           {supportsVision && (
             <button

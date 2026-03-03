@@ -205,7 +205,25 @@
       "Bash(netstat -ano)",
       "Bash(taskkill /F /PID 30700)",
       "Bash(powershell -Command \"Stop-Process -Id 30700 -Force\")",
-      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" config --help)"
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" config --help)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" channels --help)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" config get --help)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" gateway call --help)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" config list)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" config file)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" channels add --help)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" channels capabilities --help)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" channels capabilities --channel whatsapp)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" gateway call status --json)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" channels status)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" gateway call health --json)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" channels resolve --help)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" --help)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" agent --help)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" agent --message \"Say hello in 5 words\" --json --timeout 30)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" agent --agent main --message \"Say hello in 5 words\" --json --timeout 60)",
+      "Bash(node \"C:\\\\Users\\\\marcr\\\\AppData\\\\Roaming\\\\npm\\\\node_modules\\\\openclaw\\\\openclaw.mjs\" config get channels.whatsapp --json)",
+      "Bash(echo \"$APPDATA\")"
     ]
   }
 }

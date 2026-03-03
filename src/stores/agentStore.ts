@@ -26,6 +26,14 @@ interface ChannelStatus {
   whatsapp_account_id: string | null;
 }
 
+interface WhatsAppConfig {
+  dm_policy: string;
+  allowed_numbers: string[];
+  group_policy: string;
+  allowed_groups: string[];
+  self_chat_mode: boolean;
+}
+
 interface AgentState {
   // Setup state
   setupComplete: boolean;
@@ -50,6 +58,9 @@ interface AgentState {
   provider: string;
   model: string;
 
+  // WhatsApp config
+  whatsappConfig: WhatsAppConfig | null;
+
   // Actions
   checkPrerequisites: () => Promise<SetupStatus>;
   installNode: () => Promise<void>;
@@ -66,6 +77,8 @@ interface AgentState {
   whatsappWaitForScan: () => Promise<WaitResponse | null>;
   whatsappLogout: () => Promise<void>;
   refreshChannelStatus: () => Promise<void>;
+  fetchWhatsAppConfig: () => Promise<void>;
+  saveWhatsAppConfig: (config: WhatsAppConfig) => Promise<void>;
   setSetupStep: (step: number) => void;
   setSetupComplete: (complete: boolean) => void;
   setSetupProgress: (msg: string | null) => void;
@@ -102,6 +115,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   provider: "anthropic",
   model: "claude-sonnet-4-20250514",
+
+  whatsappConfig: null,
 
   // ── Setup actions ───────────────────────────────────────────────
 
@@ -158,6 +173,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         openclawPort: port,
         setupProgress: `OpenClaw gateway running on port ${port}`,
       });
+      // Read the actual primary model from config
+      try {
+        const modelInfo = await invoke<{ provider: string; model: string; full_id: string }>(
+          "openclaw_get_agent_model"
+        );
+        set({ provider: modelInfo.provider, model: modelInfo.model });
+      } catch {
+        // Non-critical
+      }
     } catch (e) {
       set({
         setupError: errorMessage(e),
@@ -184,6 +208,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         openclawRunning: status.running,
         openclawPort: status.port,
       });
+      // If the gateway is running, also read the actual primary model
+      if (status.running) {
+        try {
+          const modelInfo = await invoke<{ provider: string; model: string; full_id: string }>(
+            "openclaw_get_agent_model"
+          );
+          set({ provider: modelInfo.provider, model: modelInfo.model });
+        } catch {
+          // Non-critical — keep existing provider/model
+        }
+      }
     } catch {
       set({ openclawRunning: false, openclawPort: null });
     }
@@ -264,6 +299,27 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       });
     } catch {
       // Gateway might not be running
+    }
+  },
+
+  fetchWhatsAppConfig: async () => {
+    try {
+      const config = await invoke<WhatsAppConfig>(
+        "openclaw_get_whatsapp_config"
+      );
+      set({ whatsappConfig: config });
+    } catch (e) {
+      console.error("Failed to fetch WhatsApp config:", e);
+    }
+  },
+
+  saveWhatsAppConfig: async (config: WhatsAppConfig) => {
+    try {
+      await invoke("openclaw_set_whatsapp_config", { config });
+      set({ whatsappConfig: config });
+    } catch (e) {
+      set({ whatsappError: errorMessage(e) });
+      throw e;
     }
   },
 

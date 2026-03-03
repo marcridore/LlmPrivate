@@ -12,6 +12,8 @@ export interface Message {
   createdAt: string;
   isStreaming?: boolean;
   images?: ImageAttachment[];
+  /** Label showing which backend generated this message, e.g. "OpenClaw · openai/gpt-4o-mini" or "Local" */
+  backendLabel?: string;
 }
 
 export interface Conversation {

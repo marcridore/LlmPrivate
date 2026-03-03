@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAgentStore } from "../../stores/agentStore";
+import { WhatsAppAllowlistPanel } from "./WhatsAppAllowlistPanel";
 
 export function WhatsAppPanel() {
   const whatsappConnected = useAgentStore((s) => s.whatsappConnected);
@@ -97,6 +98,9 @@ export function WhatsAppPanel() {
           {whatsappError}
         </div>
       )}
+
+      {/* Message policy / allowlist */}
+      <WhatsAppAllowlistPanel />
 
       {/* How it works */}
       <section>

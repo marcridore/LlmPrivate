@@ -62,6 +62,14 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             {message.isStreaming && (
               <span className="inline-block w-2 h-4 bg-foreground animate-pulse ml-0.5" />
             )}
+            {/* Backend label — shows which model generated this response */}
+            {message.backendLabel && !message.isStreaming && (
+              <div className="mt-2 pt-1.5 border-t border-border/40">
+                <span className="text-[10px] text-muted-foreground/60 font-medium">
+                  {message.backendLabel}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>

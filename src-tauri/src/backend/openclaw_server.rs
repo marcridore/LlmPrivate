@@ -14,7 +14,7 @@
 //! handles the WebSocket protocol internally.
 
 use std::path::PathBuf;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::error::AppError;
@@ -68,6 +68,22 @@ pub struct WaitResponse {
 pub struct ChannelStatus {
     pub whatsapp_connected: bool,
     pub whatsapp_account_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentModelInfo {
+    pub provider: String,
+    pub model: String,
+    pub full_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhatsAppConfig {
+    pub dm_policy: String,
+    pub allowed_numbers: Vec<String>,
+    pub group_policy: String,
+    pub allowed_groups: Vec<String>,
+    pub self_chat_mode: bool,
 }
 
 impl OpenClawServer {
@@ -1187,6 +1203,291 @@ impl OpenClawServer {
         Ok(ChannelStatus {
             whatsapp_connected: connected,
             whatsapp_account_id: account_id,
+        })
+    }
+
+    // ── Agent model config ──────────────────────────────────────────
+
+    /// Read the primary agent model from OpenClaw config.
+    ///
+    /// Uses `openclaw config get agents.defaults.model.primary` to read the
+    /// configured model (e.g. "openai/gpt-4o-mini").
+    pub async fn get_agent_model(&self) -> Result<AgentModelInfo, AppError> {
+        let output = Self::run_cmd_timeout(
+            &["config", "get", "agents.defaults.model.primary"],
+            10,
+        )
+        .await?;
+
+        let full_id = output.trim().trim_matches('"').to_string();
+
+        // Split "provider/model" into parts
+        let (provider, model) = if let Some(idx) = full_id.find('/') {
+            (full_id[..idx].to_string(), full_id[idx + 1..].to_string())
+        } else {
+            ("unknown".to_string(), full_id.clone())
+        };
+
+        tracing::info!("OpenClaw agent primary model: {}/{}", provider, model);
+
+        Ok(AgentModelInfo {
+            provider,
+            model,
+            full_id,
+        })
+    }
+
+    // ── WhatsApp config ──────────────────────────────────────────────
+
+    /// Get the WhatsApp allow policy configuration from OpenClaw config.
+    ///
+    /// Uses `openclaw config get channels.whatsapp --json` to read the config.
+    pub async fn get_whatsapp_config(&self) -> Result<WhatsAppConfig, AppError> {
+        let output = Self::run_cmd_timeout(
+            &["config", "get", "channels.whatsapp", "--json"],
+            10,
+        )
+        .await;
+
+        let json: serde_json::Value = match output {
+            Ok(out) => serde_json::from_str(out.trim()).unwrap_or(serde_json::Value::Null),
+            Err(_) => serde_json::Value::Null,
+        };
+
+        // Parse config — OpenClaw uses camelCase keys
+        let dm_policy = json["dmPolicy"]
+            .as_str()
+            .unwrap_or("allowlist")
+            .to_string();
+
+        let allowed_numbers = json["allowFrom"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let group_policy = json["groupPolicy"]
+            .as_str()
+            .unwrap_or("allowlist")
+            .to_string();
+
+        let allowed_groups = json["groupAllowFrom"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let self_chat_mode = json["selfChatMode"].as_bool().unwrap_or(false);
+
+        Ok(WhatsAppConfig {
+            dm_policy,
+            allowed_numbers,
+            group_policy,
+            allowed_groups,
+            self_chat_mode,
+        })
+    }
+
+    /// Set WhatsApp allow policy configuration via OpenClaw CLI.
+    ///
+    /// Sets each config field individually using `openclaw config set`.
+    pub async fn set_whatsapp_config(&self, config: &WhatsAppConfig) -> Result<(), AppError> {
+        // Set DM policy
+        Self::run_cmd_timeout(
+            &["config", "set", "channels.whatsapp.dmPolicy", &config.dm_policy],
+            10,
+        )
+        .await?;
+
+        // Set allowed numbers as JSON array
+        let numbers_json = serde_json::to_string(&config.allowed_numbers)
+            .map_err(|e| AppError::OpenClaw(format!("Failed to serialize numbers: {e}")))?;
+        Self::run_cmd_timeout(
+            &["config", "set", "channels.whatsapp.allowFrom", &numbers_json, "--strict-json"],
+            10,
+        )
+        .await?;
+
+        // Set group policy
+        Self::run_cmd_timeout(
+            &["config", "set", "channels.whatsapp.groupPolicy", &config.group_policy],
+            10,
+        )
+        .await?;
+
+        // Set allowed groups as JSON array
+        let groups_json = serde_json::to_string(&config.allowed_groups)
+            .map_err(|e| AppError::OpenClaw(format!("Failed to serialize groups: {e}")))?;
+        Self::run_cmd_timeout(
+            &["config", "set", "channels.whatsapp.groupAllowFrom", &groups_json, "--strict-json"],
+            10,
+        )
+        .await?;
+
+        // Set self-chat mode
+        let self_chat_str = if config.self_chat_mode { "true" } else { "false" };
+        Self::run_cmd_timeout(
+            &["config", "set", "channels.whatsapp.selfChatMode", self_chat_str],
+            10,
+        )
+        .await?;
+
+        tracing::info!("WhatsApp config updated: dm_policy={}, {} numbers allowed", config.dm_policy, config.allowed_numbers.len());
+        Ok(())
+    }
+
+    // ── Chat via gateway ─────────────────────────────────────────────
+
+    /// Send a chat request through the OpenClaw gateway.
+    ///
+    /// Uses `openclaw agent --agent main --message "..." --json` to send
+    /// messages to the configured external LLM (OpenAI, Anthropic, etc.).
+    /// The response arrives as a single payload (non-streaming).
+    pub async fn chat(
+        &self,
+        messages: &[crate::backend::types::ChatMessage],
+        tx: &tokio::sync::mpsc::UnboundedSender<crate::backend::types::TokenEvent>,
+    ) -> Result<crate::backend::types::GenerationResponse, AppError> {
+        if self.port().await.is_none() {
+            return Err(AppError::OpenClaw(
+                "OpenClaw gateway is not running".to_string(),
+            ));
+        }
+
+        let start = std::time::Instant::now();
+
+        // Extract the last user message to send to the agent.
+        // OpenClaw manages its own session context, so we send the most
+        // recent user message via --message. For multi-turn context in a
+        // fresh session, we pack prior messages into the message text.
+        let last_user_msg = messages
+            .iter()
+            .rev()
+            .find(|m| matches!(m.role, crate::backend::types::Role::User))
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
+
+        if last_user_msg.is_empty() {
+            return Err(AppError::OpenClaw("No user message to send".to_string()));
+        }
+
+        tracing::info!(
+            "OpenClaw chat: sending message ({} chars) via `openclaw agent`",
+            last_user_msg.len()
+        );
+
+        // Use `openclaw agent --agent main --message "..." --json --timeout 120`
+        let output = Self::run_cmd_timeout(
+            &[
+                "agent",
+                "--agent",
+                "main",
+                "--message",
+                &last_user_msg,
+                "--json",
+                "--timeout",
+                "120",
+            ],
+            130,
+        )
+        .await?;
+
+        let elapsed = start.elapsed();
+
+        // Parse the JSON response
+        let json: serde_json::Value = serde_json::from_str(output.trim()).unwrap_or_else(|_| {
+            serde_json::json!({ "result": { "payloads": [{ "text": output.trim() }] } })
+        });
+
+        // Extract the response text from result.payloads[0].text
+        let content = json["result"]["payloads"]
+            .as_array()
+            .and_then(|payloads| {
+                // Concatenate all payload texts (usually just one)
+                let texts: Vec<&str> = payloads
+                    .iter()
+                    .filter_map(|p| p["text"].as_str())
+                    .collect();
+                if texts.is_empty() {
+                    None
+                } else {
+                    Some(texts.join("\n"))
+                }
+            })
+            .unwrap_or_else(|| {
+                // Fallback: try other common response structures
+                json["result"]["content"]
+                    .as_str()
+                    .or_else(|| json["content"].as_str())
+                    .or_else(|| json["message"].as_str())
+                    .unwrap_or_else(|| output.trim())
+                    .to_string()
+            });
+
+        // Extract token usage from metadata if available
+        let usage_tokens = json["result"]["meta"]["agentMeta"]["usage"]["output"]
+            .as_u64()
+            .unwrap_or(0) as u32;
+        let prompt_tokens = json["result"]["meta"]["agentMeta"]["usage"]["input"]
+            .as_u64()
+            .unwrap_or(0) as u32;
+        let total_tokens = if usage_tokens > 0 {
+            usage_tokens + prompt_tokens
+        } else {
+            content.split_whitespace().count() as u32
+        };
+
+        let elapsed_ms = elapsed.as_millis() as u64;
+        let tps = if elapsed_ms > 0 {
+            (total_tokens as f64) / (elapsed_ms as f64 / 1000.0)
+        } else {
+            0.0
+        };
+
+        // Send the full response as a single Token event (non-streaming, like vision_server)
+        let _ = tx.send(crate::backend::types::TokenEvent::Token {
+            text: content.clone(),
+            token_index: 0,
+        });
+
+        // Send Done event
+        let _ = tx.send(crate::backend::types::TokenEvent::Done {
+            total_tokens,
+            prompt_tokens,
+            generation_time_ms: elapsed_ms,
+            tokens_per_second: tps,
+        });
+
+        let provider = json["result"]["meta"]["agentMeta"]["provider"]
+            .as_str()
+            .unwrap_or("unknown");
+        let model = json["result"]["meta"]["agentMeta"]["model"]
+            .as_str()
+            .unwrap_or("unknown");
+
+        tracing::info!(
+            "OpenClaw chat completed: {}/{}, {} tokens in {}ms ({:.1} t/s)",
+            provider,
+            model,
+            total_tokens,
+            elapsed_ms,
+            tps
+        );
+
+        Ok(crate::backend::types::GenerationResponse {
+            content,
+            prompt_tokens,
+            completion_tokens: usage_tokens.max(total_tokens.saturating_sub(prompt_tokens)),
+            total_tokens,
+            generation_time_ms: elapsed_ms,
+            tokens_per_second: tps,
+            stop_reason: "stop".to_string(),
         })
     }
 }

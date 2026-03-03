@@ -1,7 +1,8 @@
 use tauri::State;
 
 use crate::backend::openclaw_server::{
-    ChannelStatus, OpenClawStatus, QrResponse, SetupStatus, WaitResponse,
+    AgentModelInfo, ChannelStatus, OpenClawStatus, QrResponse, SetupStatus, WaitResponse,
+    WhatsAppConfig,
 };
 use crate::error::AppError;
 use crate::state::AppState;
@@ -100,4 +101,29 @@ pub async fn openclaw_channel_status(
     state: State<'_, AppState>,
 ) -> Result<ChannelStatus, AppError> {
     state.openclaw_server.get_channel_status().await
+}
+
+/// Get the primary agent model from OpenClaw config.
+#[tauri::command]
+pub async fn openclaw_get_agent_model(
+    state: State<'_, AppState>,
+) -> Result<AgentModelInfo, AppError> {
+    state.openclaw_server.get_agent_model().await
+}
+
+/// Get WhatsApp allow policy configuration.
+#[tauri::command]
+pub async fn openclaw_get_whatsapp_config(
+    state: State<'_, AppState>,
+) -> Result<WhatsAppConfig, AppError> {
+    state.openclaw_server.get_whatsapp_config().await
+}
+
+/// Set WhatsApp allow policy configuration.
+#[tauri::command]
+pub async fn openclaw_set_whatsapp_config(
+    state: State<'_, AppState>,
+    config: WhatsAppConfig,
+) -> Result<(), AppError> {
+    state.openclaw_server.set_whatsapp_config(&config).await
 }

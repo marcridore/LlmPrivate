@@ -13,6 +13,7 @@ pub async fn send_message(
     model_handle: u64,
     params: GenerationRequest,
     on_token: Channel<TokenEvent>,
+    backend: Option<String>,
 ) -> Result<(), AppError> {
     // Check if this request has images and the vision server is running
     let has_images = params.messages.iter().any(|m| !m.images.is_empty());
@@ -20,7 +21,35 @@ pub async fn send_message(
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<TokenEvent>();
 
-    if has_images && vision_server_running {
+    if backend.as_deref() == Some("openclaw") {
+        // Route through OpenClaw gateway (external LLMs)
+        tracing::info!("Routing chat request through OpenClaw gateway");
+        let openclaw_server = state.openclaw_server.clone();
+        let messages = params.messages.clone();
+
+        let gen_handle = tokio::spawn(async move {
+            openclaw_server.chat(&messages, &tx).await
+        });
+
+        while let Some(event) = rx.recv().await {
+            if on_token.send(event).is_err() {
+                break;
+            }
+        }
+
+        let response = gen_handle
+            .await
+            .map_err(|e| AppError::TaskJoin(e.to_string()))??;
+
+        state.db.save_message(
+            &conversation_id,
+            &ChatMessage {
+                role: Role::Assistant,
+                content: response.content,
+                images: vec![],
+            },
+        )?;
+    } else if has_images && vision_server_running {
         // Route through vision server (llama-server sidecar)
         tracing::info!("Routing vision request through llama-server sidecar");
         let vision_server = state.vision_server.clone();

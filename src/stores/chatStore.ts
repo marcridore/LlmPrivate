@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import type { Message, Conversation, TokenEvent, ImageAttachment } from "../types/chat";
+import { useAgentStore } from "./agentStore";
 
 const PAGE_SIZE = 30;
 
@@ -14,6 +15,7 @@ interface ChatState {
   pendingImages: ImageAttachment[];
   _cleanupDone: boolean;
   hasMoreConversations: boolean;
+  useOpenClaw: boolean;
 
   initConversations: () => Promise<void>;
   loadConversations: () => Promise<void>;
@@ -24,6 +26,7 @@ interface ChatState {
   sendMessage: (content: string) => Promise<void>;
   stopGeneration: () => Promise<void>;
   setLoadedModelHandle: (handle: number | null) => void;
+  setUseOpenClaw: (use: boolean) => void;
   addPendingImage: (image: ImageAttachment) => void;
   removePendingImage: (id: string) => void;
   clearPendingImages: () => void;
@@ -39,6 +42,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   pendingImages: [],
   _cleanupDone: false,
   hasMoreConversations: false,
+  useOpenClaw: false,
 
   initConversations: async () => {
     if (get()._cleanupDone) {
@@ -130,9 +134,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (content: string) => {
-    const { activeConversationId, messages, loadedModelHandle, pendingImages } = get();
+    const { activeConversationId, messages, loadedModelHandle, pendingImages, useOpenClaw } = get();
 
-    if (!loadedModelHandle) {
+    // When using OpenClaw, no local model is needed
+    if (!useOpenClaw && !loadedModelHandle) {
       console.error("No model loaded");
       return;
     }
@@ -166,12 +171,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
       images: attachedImages,
     };
 
+    // Build a label showing which backend is generating the response
+    let backendLabel: string | undefined;
+    if (useOpenClaw) {
+      // Import agentStore to get the configured provider/model
+      const { provider, model } = useAgentStore.getState();
+      backendLabel = `OpenClaw · ${provider}/${model}`;
+    }
+
     const assistantMessage: Message = {
       id: crypto.randomUUID(),
       role: "assistant",
       content: "",
       createdAt: new Date().toISOString(),
       isStreaming: true,
+      backendLabel,
     };
 
     set({
@@ -237,7 +251,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       await invoke("send_message", {
         conversationId,
         messages: chatMessages,
-        modelHandle: loadedModelHandle,
+        modelHandle: loadedModelHandle ?? 0,
         params: {
           messages: chatMessages,
           max_tokens: 2048,
@@ -248,6 +262,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           stop_sequences: [],
         },
         onToken,
+        backend: useOpenClaw ? "openclaw" : null,
       });
     } catch (e) {
       console.error("Generation error:", e);
@@ -268,6 +283,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setLoadedModelHandle: (handle) => set({ loadedModelHandle: handle }),
+
+  setUseOpenClaw: (use) => set({ useOpenClaw: use }),
 
   addPendingImage: (image) =>
     set({ pendingImages: [...get().pendingImages, image] }),

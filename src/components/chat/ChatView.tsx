@@ -9,6 +9,7 @@ export function ChatView() {
   const messages = useChatStore((s) => s.messages);
   const isGenerating = useChatStore((s) => s.isGenerating);
   const setLoadedModelHandle = useChatStore((s) => s.setLoadedModelHandle);
+  const useOpenClaw = useChatStore((s) => s.useOpenClaw);
   const loadedModelHandle = useModelStore((s) => s.loadedModelHandle);
   const supportsVision = useModelStore((s) => s.supportsVision);
   const autoLoadModel = useModelStore((s) => s.autoLoadModel);
@@ -49,7 +50,8 @@ export function ChatView() {
     }
   }, []);
 
-  if (!loadedModelHandle) {
+  // Show model loader only when using local model and no model is loaded
+  if (!useOpenClaw && !loadedModelHandle) {
     return <ModelLoader />;
   }
 
